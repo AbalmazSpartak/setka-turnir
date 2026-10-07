@@ -1,8 +1,8 @@
-import { API_URL } from "./config.js?v=2";
+import { API_URL } from "./config.js?v=3";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun,
-} from "./standings.js?v=2";
+} from "./standings.js?v=3";
 
 const app = document.getElementById("app");
 
@@ -117,12 +117,49 @@ function home(s, { tournaments, linkMatches, loading, message } = {}) {
       <div class="day-row row"><span>День</span><input type="date" id="day" value="${esc(date)}"></div>
       ${loading ? `<div class="center row"><span class="spinner"></span></div>` : ""}
       ${tournaments && !tournaments.length ? `<div class="center row">Турниров нет</div>` : ""}
-      ${(tournaments ?? []).map((t) => tournamentRow(t, date)).join("")}
     </div>
+    ${halls(tournaments ?? []).map((hall) => `
+      <div class="section-title hall">${esc(hall.name)}${hall.live ? ` <span class="badge live">идёт</span>` : ""}</div>
+      <div class="card">
+        ${hall.tournaments.map((t) => tournamentRow(t, date, hall.mixed)).join("")}
+      </div>`).join("")}
     ${footer()}`;
 }
 
-function tournamentRow(t, date) {
+/** «2026-10-05 Мужчины Утро Африка» → категория «Мужчины», время дня «Утро», зал «Африка» */
+function titleParts(t) {
+  const [division = "", period = "", ...hall] = tournamentTitle(t).split(" ");
+  return { division, period, hall: hall.join(" ") || "Другие" };
+}
+
+/** Порядок по времени суток: номера Setka идут не по часам (День2 — 5, Вечер — 2) */
+const PERIODS = ["Утро", "День", "День1", "День2", "Вечер", "Ночь", "Ночь1", "Ночь2"];
+
+function periodOrder(t) {
+  const index = PERIODS.indexOf(titleParts(t).period);
+  return index === -1 ? PERIODS.length : index;
+}
+
+/** Турниры дня по залам (по алфавиту), внутри зала — по времени дня */
+function halls(tournaments) {
+  const groups = new Map();
+  for (const t of tournaments) {
+    const key = t.locationId;
+    if (!groups.has(key)) groups.set(key, { name: titleParts(t).hall, tournaments: [] });
+    groups.get(key).tournaments.push(t);
+  }
+  return [...groups.values()]
+    .map((g) => ({
+      ...g,
+      tournaments: g.tournaments.sort((a, b) => periodOrder(a) - periodOrder(b) || a.dayPeriodToken - b.dayPeriodToken),
+      live: g.tournaments.some((t) => !isFinished(t) && !isNotStarted(t)),
+      // В зале и мужские, и женские турниры — подписываем категорию
+      mixed: new Set(g.tournaments.map((t) => titleParts(t).division)).size > 1,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+}
+
+function tournamentRow(t, date, inHall = null) {
   const players = new Set(t.matches.flatMap((m) => [m.player1?.id, m.player2?.id]).filter((x) => x != null)).size;
   const played = t.matches.filter((m) => m.winnerId != null).length;
   const badge = isNotStarted(t)
@@ -131,12 +168,19 @@ function tournamentRow(t, date) {
   return `
     <button class="tournament row" data-action="open" data-date="${esc(date)}" data-id="${t.id}">
       <span class="info">
-        <span class="name">${esc(tournamentTitle(t))}</span><br>
+        <span class="name">${esc(rowTitle(t, inHall))}</span><br>
         <span class="sub">${players} ${playersNoun(players)} · сыграно ${played} из ${t.matches.length}</span>
       </span>
       ${badge}
       <span class="chevron">›</span>
     </button>`;
+}
+
+/** Внутри зала — только время дня (и категория, если в зале их несколько); в общем списке — полное название */
+function rowTitle(t, inHall) {
+  if (inHall == null) return tournamentTitle(t);
+  const { division, period } = titleParts(t);
+  return inHall || division !== "Мужчины" ? `${period} · ${division}` : period;
 }
 
 function tournamentView(t) {
