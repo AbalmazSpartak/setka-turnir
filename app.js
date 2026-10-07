@@ -1,8 +1,8 @@
-import { API_URL } from "./config.js?v=3";
+import { API_URL } from "./config.js?v=4";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun,
-} from "./standings.js?v=3";
+} from "./standings.js?v=4";
 
 const app = document.getElementById("app");
 
@@ -156,7 +156,15 @@ function halls(tournaments) {
       // В зале и мужские, и женские турниры — подписываем категорию
       mixed: new Set(g.tournaments.map((t) => titleParts(t).division)).size > 1,
     }))
-    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    .sort((a, b) => pinOrder(a.name) - pinOrder(b.name) || a.name.localeCompare(b.name, "ru"));
+}
+
+/** Залы, которые всегда сверху, в этом порядке; остальные — по алфавиту */
+const PINNED_HALLS = ["Сеул", "Токио"];
+
+function pinOrder(name) {
+  const index = PINNED_HALLS.indexOf(name);
+  return index === -1 ? PINNED_HALLS.length : index;
 }
 
 function tournamentRow(t, date, inHall = null) {
