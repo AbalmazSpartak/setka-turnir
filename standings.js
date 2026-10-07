@@ -52,7 +52,29 @@ function parseTournament(t) {
     statusCode: t.statusCode ?? "",
     matches,
     officialPlaces: officialPlaces(t.result),
+    setka: setkaResult(t.result),
   };
+}
+
+/**
+ * Итоги Setka для сверки: есть ли итоговая таблица (positions) и какие места у игрока могут быть
+ * официальными — positions, real_position или position (у Setka они иногда расходятся между собой)
+ */
+function setkaResult(result) {
+  const places = new Map();
+  const ok = result && typeof result === "object" && !Array.isArray(result);
+  const positions = ok && result.positions && !Array.isArray(result.positions) ? result.positions : {};
+  const players = ok && result.players && !Array.isArray(result.players) ? result.players : {};
+  for (const [key, p] of Object.entries(players)) {
+    places.set(int(key), [positions[key], p?.real_position, p?.position].filter((v) => v != null).map((v) => int(v)));
+  }
+  return { hasFinal: Object.keys(positions).length > 0, places };
+}
+
+/** Совпали ли наши места с официальными Setka; null — у Setka нет итоговой таблицы, сверять не с чем */
+export function matchesSetka(t, s) {
+  if (!t.setka.hasFinal) return null;
+  return s.rows.every((r) => (t.setka.places.get(r.player.id) ?? []).includes(r.place));
 }
 
 /** Места у Setka — нужны только для порядка при жребии. У незавершённых турниров поля бывают пустыми массивами */

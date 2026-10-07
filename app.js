@@ -1,8 +1,9 @@
-import { API_URL } from "./config.js?v=6";
+import { API_URL } from "./config.js?v=7";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, ittfDifference, isDoubleLoss,
-} from "./standings.js?v=6";
+} from "./standings.js?v=7";
+import { SITUATIONS, detectSituations } from "./situations.js?v=7";
 
 const app = document.getElementById("app");
 
@@ -251,7 +252,8 @@ function tournamentView(t) {
               <h3>${esc(tie.title)}</h3>
               <ul>${tie.lines.map((line) => `<li>${esc(line[0].toUpperCase() + line.slice(1))}</li>`).join("")}</ul>
             </div>`).join("")}
-        </div>` : ""}`}
+        </div>` : ""}
+      ${whatIf.applied ? "" : similarCases(t, s)}`}
     ${s.hasPlacementMatches ? `
       <div class="section-title">Финал и матч за 3-е место</div>
       <div class="card">${s.placementMatches.map((m) => matchRow(m, closed, outcomes)).join("")}</div>` : ""}
@@ -261,6 +263,58 @@ function tournamentView(t) {
       <button class="outline" data-action="share">Поделиться ссылкой</button>
     </div>
     ${footer()}`;
+}
+
+// --- «Похожие случаи»: справочник прошлых нестандартных турниров (precedents.json, обновляется раз в неделю) ---
+
+let precedents = null;
+
+// no-cache: браузер каждый раз сверяется с сайтом, справочник обновляется раз в неделю
+fetch("precedents.json", { cache: "no-cache" })
+  .then((response) => (response.ok ? response.json() : null))
+  .then((data) => {
+    precedents = data;
+    if (data && state().id != null) render();
+  })
+  .catch(() => {});
+
+const shortDate = (date) => `${date.slice(8, 10)}.${date.slice(5, 7)}`;
+
+function casesNoun(n) {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "раз";
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return "раза";
+  return "раз";
+}
+
+function similarCases(t, s) {
+  if (!precedents) return "";
+  const keys = detectSituations(t, s, ittfDifference(t, s));
+  if (!keys.length) return "";
+  const items = SITUATIONS.filter((x) => keys.includes(x.key)).map((situation) => {
+    const stats = precedents.situations[situation.key] ?? { total: 0, confirmed: 0, mismatched: 0, cases: [] };
+    const others = stats.cases.filter((c) => c.id !== t.id).slice(0, 3);
+    const checked = stats.confirmed + stats.mismatched;
+    const period = `${shortDate(precedents.from)}–${shortDate(precedents.to)}`;
+    let basis = stats.total
+      ? `Встречалось ${stats.total} ${casesNoun(stats.total)} за ${period}; наш подсчёт совпал с итогом Setka в ${stats.confirmed} из ${checked}.`
+      : `В турнирах за ${period} такого не встречалось — вывод не проверен на прошлых случаях.`;
+    if (stats.total === 1) basis += " Вывод сделан по одному турниру.";
+    if (stats.mismatched) basis += ` ⚠️ Есть расхождения с Setka: ${stats.mismatched}.`;
+    return `
+      <div class="case">
+        <h3>${esc(situation.title)}</h3>
+        <p>${esc(situation.conclusion)}</p>
+        <p class="hint">${esc(basis)}</p>
+        ${others.length ? `
+          <div class="case-links">Так было в:
+            ${others.map((c) => `<a href="?date=${esc(c.date)}&t=${c.id}" data-action="open" data-date="${esc(c.date)}" data-id="${c.id}">${esc(c.title)}, ${shortDate(c.date)}</a>`).join(" · ")}
+          </div>` : stats.total ? `<div class="hint">Этот турнир — единственный известный такой случай.</div>` : ""}
+      </div>`;
+  });
+  return `
+    <div class="section-title">📚 Похожие случаи</div>
+    <div class="card pad">${items.join("")}</div>`;
 }
 
 /** Сноска, если по правилам ITTF (мячи по соотношению) места были бы другими */
@@ -476,6 +530,7 @@ function bind() {
 
 async function onAction(event) {
   const el = event.currentTarget;
+  if (el.tagName === "A") event.preventDefault();
   switch (el.dataset.action) {
     case "open":
       go({ date: el.dataset.date, t: el.dataset.id });
