@@ -2,7 +2,9 @@
 // Очки: победа 2, поражение 1, техническое поражение 0. При равенстве очков сравниваются
 // только встречи между равными: очки, затем соотношение партий, затем мячей. Кто отделился —
 // выбывает, остальные сравниваются заново между собой. Полное равенство — жребий.
-// Тот же подсчёт, что в приложениях для iPhone и Android; сверен с официальными местами Setka
+// Отличие Setka от ITTF: мячи сравниваются по разнице, а не по соотношению (balls: "diff").
+// С ним места совпали с официальными Setka в 2233 из 2238 турниров (01.08–07.10.2026);
+// в остальных 5 у Setka нет итоговой таблицы. По соотношению (как в ITTF) — 2232, расходится Лондон 29.08
 
 /** Число из поля, которое Setka присылает то числом, то строкой */
 const int = (value, fallback = 0) => {
@@ -169,11 +171,15 @@ export function playersNoun(n) {
   return "игроков";
 }
 
+const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : "0");
+
 class Ranker {
-  constructor(games, players, lotOrder) {
+  /** balls: "diff" — мячи по разнице, как у Setka; "ratio" — по соотношению, как в правилах ITTF */
+  constructor(games, players, lotOrder, balls) {
     this.games = games;
     this.players = players;
     this.lotOrder = lotOrder;
+    this.balls = balls;
     this.ties = [];
   }
 
@@ -222,7 +228,13 @@ class Ranker {
     const criteria = [
       { name: "очки во встречах между собой", short: "очки", key: (id) => [rec.get(id).points, 1], label: (id) => `${rec.get(id).points}` },
       { name: "партии между собой", short: "партии", key: (id) => [rec.get(id).setsWon, rec.get(id).setsLost], label: (id) => `${rec.get(id).setsWon}:${rec.get(id).setsLost}` },
-      { name: "мячи между собой", short: "мячи", key: (id) => [rec.get(id).ballsWon, rec.get(id).ballsLost], label: (id) => `${rec.get(id).ballsWon}:${rec.get(id).ballsLost}` },
+      this.balls === "diff"
+        ? { name: "разница мячей между собой", short: "разница мячей",
+            key: (id) => [rec.get(id).ballsWon - rec.get(id).ballsLost, 1],
+            label: (id) => `${rec.get(id).ballsWon}:${rec.get(id).ballsLost} (${signed(rec.get(id).ballsWon - rec.get(id).ballsLost)})` }
+        : { name: "мячи между собой", short: "мячи",
+            key: (id) => [rec.get(id).ballsWon, rec.get(id).ballsLost],
+            label: (id) => `${rec.get(id).ballsWon}:${rec.get(id).ballsLost}` },
     ];
     // Равные показатели собираются в одну фразу: «очки по 3, партии по 5:5»
     const equal = [];
@@ -253,9 +265,10 @@ class Ranker {
 
 /**
  * Таблица турнира: rows — игроки с местом в группе (groupPlace) и итоговым (place),
- * ties — объяснения равенств, groupMatches / placementMatches, playedCount
+ * ties — объяснения равенств, groupMatches / placementMatches, playedCount.
+ * balls: "diff" — как считает Setka (по умолчанию), "ratio" — строго по правилам ITTF
  */
-export function standings(t) {
+export function standings(t, { balls = "diff" } = {}) {
   const groupMatches = t.matches.filter((m) => m.forPositionId <= 1).sort((a, b) => a.position - b.position);
   const placementMatches = t.matches.filter((m) => m.forPositionId > 1).sort((a, b) => a.forPositionId - b.forPositionId);
 
@@ -263,7 +276,7 @@ export function standings(t) {
   for (const m of t.matches) for (const p of [m.player1, m.player2]) if (p) players.set(p.id, p);
   const games = groupMatches.map(game).filter(Boolean);
 
-  const ranker = new Ranker(games, players, t.officialPlaces);
+  const ranker = new Ranker(games, players, t.officialPlaces, balls);
   const order = ranker.rank([...players.keys()].sort((a, b) => a - b));
   const totals = records(new Set(players.keys()), games);
 
@@ -304,6 +317,18 @@ export function standings(t) {
     get hasPlacementMatches() { return placementMatches.length > 0; },
     get placementDone() { return placementMatches.every((m) => m.winnerId != null); },
   };
+}
+
+/**
+ * Игроки, чьё место было бы другим по правилам ITTF (мячи по соотношению, а не по разнице),
+ * по порядку мест ITTF; пусто — правила дают одинаковый результат
+ */
+export function ittfDifference(t, s) {
+  const ittf = new Map(standings(t, { balls: "ratio" }).rows.map((r) => [r.player.id, r.place]));
+  return s.rows
+    .filter((r) => ittf.get(r.player.id) !== r.place)
+    .map((r) => ({ player: r.player, place: r.place, ittfPlace: ittf.get(r.player.id) }))
+    .sort((a, b) => a.ittfPlace - b.ittfPlace);
 }
 
 // --- Ссылка ---

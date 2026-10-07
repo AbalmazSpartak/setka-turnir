@@ -220,3 +220,4 @@ td.points { font-weight: 700; }
 
 .section-title.hall { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--text); text-transform: none; letter-spacing: 0; }
 .section-title .badge { text-transform: none; letter-spacing: 0; }
+.note.footnote { padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text); }

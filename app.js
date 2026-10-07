@@ -1,8 +1,8 @@
-import { API_URL } from "./config.js?v=4";
+import { API_URL } from "./config.js?v=5";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
-  isLive, liveScore, game, fullName, playersNoun,
-} from "./standings.js?v=4";
+  isLive, liveScore, game, fullName, playersNoun, ittfDifference,
+} from "./standings.js?v=5";
 
 const app = document.getElementById("app");
 
@@ -203,15 +203,17 @@ function tournamentView(t) {
     </div>
     ${notStarted ? notStartedView(s) : `
       ${unfinished ? provisional(s) : ""}
-      ${s.hasPlacementMatches && s.placementDone ? `
+      ${s.hasPlacementMatches && (s.placementDone || isFinished(t)) ? `
         <div class="section-title">Итоговые места</div>
         <div class="card">
           ${[...s.rows].sort((a, b) => a.place - b.place).map((r) => `
             <div class="final-row row">${place(r.place)}<span>${esc(fullName(r.player))}</span></div>`).join("")}
-        </div>` : ""}
+        </div>
+        ${notHeld(t, s)}` : ""}
       <div class="section-title">${s.isGroupComplete ? (s.hasPlacementMatches ? "Группа" : "Таблица") : "Таблица лидеров сейчас"}</div>
       <div class="card">${table(s)}</div>
-      <p class="note">Победа — 2 очка, поражение — 1, техническое поражение — 0.</p>
+      <p class="note">Победа — 2 очка, поражение — 1, техническое поражение — 0. При равенстве мячи сравниваются по разнице, как у Setka.</p>
+      ${ittfNote(t, s)}
       ${s.ties.length ? `
         <div class="section-title">Почему так</div>
         <div class="card pad">
@@ -230,6 +232,26 @@ function tournamentView(t) {
       <button class="outline" data-action="share">Поделиться ссылкой</button>
     </div>
     ${footer()}`;
+}
+
+/** Сноска, если по правилам ITTF (мячи по соотношению) места были бы другими */
+function ittfNote(t, s) {
+  const diff = ittfDifference(t, s);
+  if (!diff.length) return "";
+  return `
+    <p class="note footnote">* По правилам ITTF (мячи сравниваются по соотношению, а не по разнице) результат был бы:
+      ${diff.map((d) => `<b>${d.ittfPlace}. ${esc(d.player.lastName)}</b>`).join(" · ")}</p>`;
+}
+
+/** Турнир закрыт, а финал или матч за 3-е место не доигран — места из таблицы группы */
+function notHeld(t, s) {
+  if (!isFinished(t)) return "";
+  const lines = s.placementMatches.filter((m) => m.winnerId == null).map((m) => {
+    if (m.forPositionId === 2) return "Финал не состоялся — 1-е и 2-е места по таблице группы.";
+    if (m.forPositionId === 3) return "Матч за 3-е место не состоялся — 3-е и 4-е места по таблице группы.";
+    return `Матч за ${m.forPositionId}-е место не состоялся — места по таблице группы.`;
+  });
+  return lines.map((line) => `<p class="note">ℹ️ ${esc(line)}</p>`).join("");
 }
 
 function provisional(s) {
