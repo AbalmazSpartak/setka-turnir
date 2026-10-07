@@ -1,0 +1,32 @@
+# Раз в неделю: скачать турниры Setka за последние 14 дней, найти нестандартные случаи
+# и дописать их в precedents.json — блок «Похожие случаи» на странице обновится сам
+name: Справочник случаев
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"   # понедельник, 03:00 UTC
+  workflow_dispatch:       # запуск вручную: вкладка Actions → «Справочник случаев» → Run workflow
+  push:
+    paths: [".github/workflows/precedents.yml", "tools/precedents.mjs", "situations.js"]
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Собрать справочник
+        run: node tools/precedents.mjs --fetch 14
+      - name: Сохранить
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898277+github-actions[bot]@users.noreply.github.com"
+          git add precedents.json
+          git diff --cached --quiet && { echo "Без изменений"; exit 0; }
+          git commit -m "Справочник случаев: турниры по $(date -u +%F)"
+          git push
