@@ -1,9 +1,12 @@
-import { API_URL } from "./config.js?v=7";
+import { API_URL } from "./config.js?v=8";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, ittfDifference, isDoubleLoss,
-} from "./standings.js?v=7";
-import { SITUATIONS, detectSituations } from "./situations.js?v=7";
+} from "./standings.js?v=8";
+import { SITUATIONS, detectSituations } from "./situations.js?v=8";
+import {
+  RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
+} from "./testmode.js?v=8";
 
 const app = document.getElementById("app");
 
@@ -32,7 +35,7 @@ const today = () => {
 function state() {
   const p = new URLSearchParams(location.search);
   const int = (name) => (p.has(name) ? Number.parseInt(p.get(name), 10) : null);
-  return { date: p.get("date"), hall: int("hall"), period: int("period"), id: int("t") };
+  return { date: p.get("date"), hall: int("hall"), period: int("period"), id: int("t"), test: p.get("test"), d: p.get("d") };
 }
 
 /** Сколько шагов назад внутри страницы — чтобы «Назад» не уводил с сайта */
@@ -61,7 +64,9 @@ async function render() {
   const token = ++renderToken;
   const s = state();
   try {
-    if (s.date && s.id != null) {
+    if (s.test) {
+      renderTest(s);
+    } else if (s.date && s.id != null) {
       app.innerHTML = loadingTournament();
       const t = (await loadDay(s.date)).find((x) => x.id === s.id);
       if (token !== renderToken) return;
@@ -88,6 +93,103 @@ async function render() {
   bind();
 }
 
+// --- 🧪 Тест: свой турнир для проверки логики ---
+
+/** Черновик редактора — живёт, пока открыта страница */
+let testDraft = null;
+
+function renderTest(s) {
+  const data = s.d ? decode(s.d) : null;
+  if (s.test === "view" && data) {
+    testDraft = data;
+    app.innerHTML = tournamentView(buildTournament(data));
+    document.title = "Свой турнир (тест) — Турнир";
+    return;
+  }
+  testDraft = data ?? testDraft ?? emptyTest();
+  app.innerHTML = testEditor(testDraft, s.test === "view" ? "Не получилось прочитать тест из ссылки." : "");
+  document.title = "Тест — Турнир";
+}
+
+function testEditor(data, message = "") {
+  const names = data.players.map((name, i) => name.trim() || `Игрок ${i + 1}`);
+  const list = pairs(data.players.length);
+  return `
+    <div class="topbar">
+      <div class="side"><button class="ghost" data-action="back">‹ Назад</button></div>
+      <h2>🧪 Свой турнир</h2>
+      <div class="side end"></div>
+    </div>
+    <p class="note">Введите игроков и результаты — места посчитаются так же, как для турниров Setka. Удобно проверять необычные ситуации: равенства, неявки, «L : L».</p>
+    ${message ? `<p class="note error">${esc(message)}</p>` : ""}
+    <div class="section-title">Игроки · ${data.players.length}</div>
+    <div class="card pad">
+      ${data.players.map((name, i) => `
+        <div class="test-player">
+          <span class="place">${i + 1}</span>
+          <input type="text" data-player="${i}" value="${esc(name)}" placeholder="Игрок ${i + 1}" maxlength="24" autocomplete="off">
+          ${data.players.length > MIN_PLAYERS ? `<button class="ghost icon" data-action="test-remove" data-index="${i}" aria-label="Убрать игрока">✕</button>` : ""}
+        </div>`).join("")}
+      ${data.players.length < MAX_PLAYERS ? `<button class="outline small" data-action="test-add">+ Игрок</button>` : ""}
+    </div>
+    <div class="section-title">Матчи · ${list.length}</div>
+    <div class="card">
+      ${list.map(([a, b]) => {
+        const key = pairKey(a, b);
+        const { r = "", sets = "" } = data.results[key] ?? {};
+        const label = (text) => text.replace("A", names[a]).replace("B", names[b]);
+        return `
+          <div class="test-match row">
+            <div class="test-pair">${esc(names[a])} — ${esc(names[b])}</div>
+            <div class="test-inputs">
+              <select data-result="${key}">
+                ${RESULTS.map(([value, text]) => `<option value="${value}" ${value === r ? "selected" : ""}>${esc(label(text))}</option>`).join("")}
+              </select>
+              <input type="text" data-sets="${key}" value="${esc(sets)}" placeholder="партии: 11:7 9:11 11:5" inputmode="numbers" autocomplete="off">
+            </div>
+            <div class="hint error" data-mismatch="${key}" ${setsMismatch(r, sets) ? "" : "hidden"}>Партии не сходятся со счётом — в расчёт пойдут мячи из партий, а счёт — выбранный.</div>
+          </div>`;
+      }).join("")}
+    </div>
+    <p class="note">Партии необязательны: без них мячи считаются нулями, а места решают очки и партии.</p>
+    <label class="test-toggle"><input type="checkbox" id="test-closed" ${data.closed ? "checked" : ""}> Турнир закрыт — несыгранные матчи «не состоялись»</label>
+    <div class="actions test-actions">
+      <button class="outline small" data-action="test-random">Заполнить случайно</button>
+      <button class="outline small" data-action="test-clear">Очистить</button>
+      <button data-action="test-run">Посчитать</button>
+    </div>
+    ${footer()}`;
+}
+
+/** Данные из полей редактора → черновик */
+function readEditor() {
+  const players = [...app.querySelectorAll("[data-player]")].map((input) => input.value);
+  const results = {};
+  for (const select of app.querySelectorAll("[data-result]")) {
+    const key = select.dataset.result;
+    const sets = app.querySelector(`[data-sets="${key}"]`)?.value.trim() ?? "";
+    if (select.value || sets) results[key] = { r: select.value, sets };
+  }
+  testDraft = { players, results, closed: app.querySelector("#test-closed")?.checked ?? true };
+  return testDraft;
+}
+
+function showEditor() {
+  app.innerHTML = testEditor(testDraft);
+  bind();
+}
+
+/** Убрать игрока: результаты остальных пар сохраняются, номера сдвигаются */
+function removePlayer(data, index) {
+  const shift = (i) => (i > index ? i - 1 : i);
+  const results = {};
+  for (const [key, value] of Object.entries(data.results)) {
+    const [a, b] = key.split("-").map(Number);
+    if (a !== index && b !== index) results[pairKey(shift(a), shift(b))] = value;
+  }
+  return { ...data, players: data.players.filter((_, i) => i !== index), results };
+}
+
 function loadingTournament() {
   return `
     <div class="topbar"><div class="side"><button class="ghost" data-action="back">‹ Назад</button></div><h2></h2><div class="side end"></div></div>
@@ -97,7 +199,10 @@ function loadingTournament() {
 function home(s, { tournaments, linkMatches, loading, message } = {}) {
   const date = s.date ?? today();
   return `
-    <h1>Турнир</h1>
+    <div class="title-row">
+      <h1>Турнир</h1>
+      <button class="outline small" data-action="test-open" title="Свой турнир для проверки логики">🧪 Тест</button>
+    </div>
     <div class="section-title">Ссылка на турнир</div>
     <div class="card pad">
       <textarea id="link" rows="2" placeholder="setkacup.com/ru/schedule?date=…" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
@@ -225,8 +330,14 @@ function tournamentView(t) {
     <div class="topbar">
       <div class="side"><button class="ghost" data-action="back">‹ Назад</button></div>
       <h2>${esc(tournamentTitle(t))}</h2>
-      <div class="side end"><button class="ghost icon" data-action="refresh" aria-label="Обновить" title="Обновить">↻</button></div>
+      <div class="side end">${t.isTest ? "" : `<button class="ghost icon" data-action="refresh" aria-label="Обновить" title="Обновить">↻</button>`}</div>
     </div>
+    ${t.isTest ? `
+      <div class="card pad test-banner" style="margin-top:8px">
+        <h3>🧪 Тестовые данные</h3>
+        <p>Это ваш турнир, а не турнир Setka. Посчитан тем же способом, что и настоящие.</p>
+        <div class="actions"><button class="outline small" data-action="test-edit">Изменить данные</button></div>
+      </div>` : ""}
     ${notStarted ? notStartedView(s) : `
       ${whatIf.applied ? scenarioBanner(t, outcomes) : `
         ${!closed && unfinished ? provisional(s, pending.length > 0) : ""}
@@ -526,6 +637,15 @@ function bind() {
       openLink(link.value);
     }
   });
+  // Тест: подсказка «партии не сходятся со счётом» обновляется сразу
+  for (const field of app.querySelectorAll("[data-result], [data-sets]")) {
+    field.addEventListener("change", () => {
+      const key = field.dataset.result ?? field.dataset.sets;
+      const result = app.querySelector(`[data-result="${key}"]`).value;
+      const sets = app.querySelector(`[data-sets="${key}"]`).value;
+      app.querySelector(`[data-mismatch="${key}"]`).hidden = !setsMismatch(result, sets);
+    });
+  }
 }
 
 async function onAction(event) {
@@ -535,9 +655,43 @@ async function onAction(event) {
     case "open":
       go({ date: el.dataset.date, t: el.dataset.id });
       break;
-    case "back":
+    case "back": {
+      const s = state();
       if (depth > 0) history.back();
-      else go({ date: state().date });
+      else if (s.test === "view") go({ test: "edit", d: s.d });
+      else go({ date: s.date });
+      break;
+    }
+    case "test-open":
+      go({ test: "edit" });
+      break;
+    case "test-edit":
+      go({ test: "edit", d: state().d });
+      break;
+    case "test-add":
+      readEditor();
+      if (testDraft.players.length < MAX_PLAYERS) testDraft.players.push(`Игрок ${testDraft.players.length + 1}`);
+      showEditor();
+      break;
+    case "test-remove":
+      testDraft = removePlayer(readEditor(), Number(el.dataset.index));
+      showEditor();
+      break;
+    case "test-random":
+      readEditor();
+      testDraft.results = randomResults(testDraft.players.length);
+      showEditor();
+      break;
+    case "test-clear":
+      readEditor();
+      testDraft.results = {};
+      showEditor();
+      break;
+    case "test-run":
+      // Новые данные — прежние выбранные исходы «Посчитать с исходами» не подходят
+      Object.assign(whatIf, { id: null, open: false, picks: new Map(), applied: false });
+      go({ test: "view", d: encode(readEditor()) });
+      window.scrollTo({ top: 0 });
       break;
     case "refresh": {
       const s = state();

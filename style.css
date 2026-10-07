@@ -239,3 +239,25 @@ button.small { padding: 6px 14px; font-size: 14px; }
 .case p { margin: 4px 0 0; font-size: 14px; }
 .case-links { margin-top: 6px; font-size: 13px; color: var(--muted); }
 .case-links a { color: var(--accent); text-decoration: none; }
+
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.title-row h1 { margin-right: auto; }
+.test-player { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.test-player input, .test-inputs input {
+  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 8px 10px; flex: 1; min-width: 0;
+}
+.test-match { padding: 10px 16px; }
+.test-pair { font-weight: 600; font-size: 15px; margin-bottom: 6px; }
+.test-inputs { display: flex; gap: 8px; }
+.test-inputs select {
+  font: inherit; font-size: 14px; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 8px; flex: 0 0 auto; max-width: 52%;
+}
+.test-inputs input { font-size: 14px; }
+.test-toggle { display: flex; align-items: center; gap: 8px; margin: 14px 4px 0; font-size: 14px; }
+.test-actions { flex-wrap: wrap; margin-top: 14px; }
+.test-banner { box-shadow: inset 0 0 0 1.5px var(--live); }
+.test-banner h3 { margin: 0; font-size: 15px; color: var(--live); }
+.test-banner p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.hint.error { color: #d93030; }
