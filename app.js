@@ -1,8 +1,8 @@
-import { API_URL } from "./config.js";
+import { API_URL } from "./config.js?v=2";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun,
-} from "./standings.js";
+} from "./standings.js?v=2";
 
 const app = document.getElementById("app");
 
