@@ -1,8 +1,8 @@
-import { API_URL } from "./config.js?v=5";
+import { API_URL } from "./config.js?v=6";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
-  isLive, liveScore, game, fullName, playersNoun, ittfDifference,
-} from "./standings.js?v=5";
+  isLive, liveScore, game, fullName, playersNoun, ittfDifference, isDoubleLoss,
+} from "./standings.js?v=6";
 
 const app = document.getElementById("app");
 
@@ -191,10 +191,35 @@ function rowTitle(t, inHall) {
   return inHall || division !== "Мужчины" ? `${period} · ${division}` : period;
 }
 
+// --- «Посчитать с исходами»: свои исходы для несыгранных матчей, расчёт не официальный ---
+
+/** id турнира, открыт ли выбор, выбранные исходы (id матча → «1:3:1» — победил первый 3:1) и применены ли они */
+const whatIf = { id: null, open: false, picks: new Map(), applied: false };
+
+/** Матчи, для которых можно выбрать исход: пары известны, результата нет и это не «L : L» */
+const pendingMatches = (t) =>
+  t.matches.filter((m) => m.player1 && m.player2 && m.winnerId == null && !isDoubleLoss(m))
+    .sort((a, b) => a.forPositionId - b.forPositionId || a.position - b.position);
+
+function outcomesOf(t) {
+  const outcomes = new Map();
+  if (whatIf.id !== t.id || !whatIf.applied) return outcomes;
+  for (const [id, value] of whatIf.picks) {
+    const [side, won, lost] = value.split(":").map(Number);
+    outcomes.set(id, side === 1 ? { s1: won, s2: lost } : { s1: lost, s2: won });
+  }
+  return outcomes;
+}
+
 function tournamentView(t) {
-  const s = standings(t);
+  if (whatIf.id !== t.id) Object.assign(whatIf, { id: t.id, open: false, picks: new Map(), applied: false });
+  const outcomes = outcomesOf(t);
+  const s = standings(t, { outcomes });
+  const closed = isFinished(t);
   const notStarted = isNotStarted(t);
-  const unfinished = t.matches.some((m) => m.winnerId == null);
+  const unfinished = t.matches.some((m) => m.winnerId == null && !isDoubleLoss(m));
+  const pending = pendingMatches(t);
+  const placementResolved = s.placementMatches.every((m) => m.winnerId != null || outcomes.has(m.id));
   return `
     <div class="topbar">
       <div class="side"><button class="ghost" data-action="back">‹ Назад</button></div>
@@ -202,18 +227,22 @@ function tournamentView(t) {
       <div class="side end"><button class="ghost icon" data-action="refresh" aria-label="Обновить" title="Обновить">↻</button></div>
     </div>
     ${notStarted ? notStartedView(s) : `
-      ${unfinished ? provisional(s) : ""}
-      ${s.hasPlacementMatches && (s.placementDone || isFinished(t)) ? `
+      ${whatIf.applied ? scenarioBanner(t, outcomes) : `
+        ${!closed && unfinished ? provisional(s, pending.length > 0) : ""}
+        ${closed ? notHeldBlock(t, pending.length > 0) : ""}`}
+      ${whatIf.open ? picker(t, pending) : ""}
+      ${s.hasPlacementMatches && (placementResolved || closed) ? `
         <div class="section-title">Итоговые места</div>
         <div class="card">
           ${[...s.rows].sort((a, b) => a.place - b.place).map((r) => `
             <div class="final-row row">${place(r.place)}<span>${esc(fullName(r.player))}</span></div>`).join("")}
         </div>
         ${notHeld(t, s)}` : ""}
-      <div class="section-title">${s.isGroupComplete ? (s.hasPlacementMatches ? "Группа" : "Таблица") : "Таблица лидеров сейчас"}</div>
+      <div class="section-title">${whatIf.applied ? "Таблица с выбранными исходами"
+        : s.isGroupComplete || closed ? (s.hasPlacementMatches ? "Группа" : "Таблица") : "Таблица лидеров сейчас"}</div>
       <div class="card">${table(s)}</div>
       <p class="note">Победа — 2 очка, поражение — 1, техническое поражение — 0. При равенстве мячи сравниваются по разнице, как у Setka.</p>
-      ${ittfNote(t, s)}
+      ${ittfNote(t, s, outcomes)}
       ${s.ties.length ? `
         <div class="section-title">Почему так</div>
         <div class="card pad">
@@ -225,9 +254,9 @@ function tournamentView(t) {
         </div>` : ""}`}
     ${s.hasPlacementMatches ? `
       <div class="section-title">Финал и матч за 3-е место</div>
-      <div class="card">${s.placementMatches.map(matchRow).join("")}</div>` : ""}
+      <div class="card">${s.placementMatches.map((m) => matchRow(m, closed, outcomes)).join("")}</div>` : ""}
     <div class="section-title">Матчи группы</div>
-    <div class="card">${s.groupMatches.map(matchRow).join("")}</div>
+    <div class="card">${s.groupMatches.map((m) => matchRow(m, closed, outcomes)).join("")}</div>
     <div class="actions" style="justify-content:center;margin-top:18px">
       <button class="outline" data-action="share">Поделиться ссылкой</button>
     </div>
@@ -235,8 +264,8 @@ function tournamentView(t) {
 }
 
 /** Сноска, если по правилам ITTF (мячи по соотношению) места были бы другими */
-function ittfNote(t, s) {
-  const diff = ittfDifference(t, s);
+function ittfNote(t, s, outcomes) {
+  const diff = ittfDifference(t, s, outcomes);
   if (!diff.length) return "";
   return `
     <p class="note footnote">* По правилам ITTF (мячи сравниваются по соотношению, а не по разнице) результат был бы:
@@ -246,7 +275,7 @@ function ittfNote(t, s) {
 /** Турнир закрыт, а финал или матч за 3-е место не доигран — места из таблицы группы */
 function notHeld(t, s) {
   if (!isFinished(t)) return "";
-  const lines = s.placementMatches.filter((m) => m.winnerId == null).map((m) => {
+  const lines = s.placementMatches.filter((m) => m.winnerId == null && !whatIf.picks.has(m.id)).map((m) => {
     if (m.forPositionId === 2) return "Финал не состоялся — 1-е и 2-е места по таблице группы.";
     if (m.forPositionId === 3) return "Матч за 3-е место не состоялся — 3-е и 4-е места по таблице группы.";
     return `Матч за ${m.forPositionId}-е место не состоялся — места по таблице группы.`;
@@ -254,7 +283,87 @@ function notHeld(t, s) {
   return lines.map((line) => `<p class="note">ℹ️ ${esc(line)}</p>`).join("");
 }
 
-function provisional(s) {
+/** Матч начали, но не доиграли: партии не только 11:0 / 0:11 (так Setka пишет неявку) */
+function interrupted(m) {
+  if (!m.setScores.length || m.setScores.every((x) => (x.p1 === 11 && x.p2 === 0) || (x.p1 === 0 && x.p2 === 11))) return "";
+  return ` — прерван при ${liveScore(m)}`;
+}
+
+/** Закрытый турнир: какие матчи не состоялись или не доиграны и как они засчитаны */
+function notHeldBlock(t, canPick) {
+  const lines = t.matches
+    .filter((m) => m.forPositionId <= 1 && (m.technical || m.winnerId == null))
+    .sort((a, b) => a.position - b.position)
+    .map((m) => {
+      const pairText = `${m.player1?.lastName ?? "—"} — ${m.player2?.lastName ?? "—"}`;
+      if (isDoubleLoss(m)) return `${pairText}: техническое поражение обоим, по 0 очков${interrupted(m)}`;
+      if (m.winnerId == null) return `${pairText}: не сыгран, в подсчёте не учитывается`;
+      const winner = m.winnerId === m.player1?.id ? m.player1 : m.player2;
+      return `${pairText}: техническая победа ${winner?.lastName ?? ""} (+2 очка, 3:0 по партиям)${interrupted(m)}`;
+    });
+  if (!lines.length) return "";
+  return `
+    <div class="card pad info" style="margin-top:8px">
+      <h3>ℹ️ Не состоялись или не доиграны</h3>
+      <p>Турнир закрыт. Так эти матчи засчитаны в таблице — как у Setka:</p>
+      ${lines.map((line) => `<div class="pair">${esc(line)}</div>`).join("")}
+      ${canPick ? whatIfButton() : ""}
+    </div>`;
+}
+
+function whatIfButton() {
+  return `
+    <div class="block">
+      <button class="outline small" data-action="whatif-open">Посчитать с исходами</button>
+      <p class="hint">Выберите, как могли бы закончиться несыгранные матчи, — таблица пересчитается.</p>
+    </div>`;
+}
+
+function picker(t, pending) {
+  return `
+    <div class="card pad picker" style="margin-top:8px">
+      <h3>Исходы несыгранных матчей</h3>
+      ${pending.map((m) => {
+        const current = whatIf.picks.get(m.id) ?? "";
+        const opt = (value, label) => `<option value="${value}" ${current === value ? "selected" : ""}>${esc(label)}</option>`;
+        const [a, b] = [m.player1.lastName, m.player2.lastName];
+        return `
+          <label class="pick-row">
+            <span>${esc(pair(m))}</span>
+            <select data-match="${m.id}">
+              ${opt("", "не учитывать")}
+              ${opt("1:3:0", `${a} 3:0`)}${opt("1:3:1", `${a} 3:1`)}${opt("1:3:2", `${a} 3:2`)}
+              ${opt("2:3:2", `${b} 3:2`)}${opt("2:3:1", `${b} 3:1`)}${opt("2:3:0", `${b} 3:0`)}
+            </select>
+          </label>`;
+      }).join("")}
+      <p class="hint">Мячи этих матчей неизвестны и в расчёт не идут.</p>
+      <div class="actions">
+        <button class="outline" data-action="whatif-close">Отмена</button>
+        <button data-action="whatif-apply">Пересчитать</button>
+      </div>
+    </div>`;
+}
+
+function scenarioBanner(t, outcomes) {
+  const chosen = t.matches.filter((m) => outcomes.has(m.id)).map((m) => {
+    const o = outcomes.get(m.id);
+    const winner = o.s1 > o.s2 ? m.player1.lastName : m.player2.lastName;
+    return `${pair(m)}: ${winner} ${Math.max(o.s1, o.s2)}:${Math.min(o.s1, o.s2)}`;
+  });
+  return `
+    <div class="card pad scenario" style="margin-top:8px">
+      <h3>🧮 Расчёт с выбранными исходами</h3>
+      <p>Не официальный результат — так было бы, если бы матчи закончились так:</p>
+      ${chosen.map((line) => `<div class="pair">${esc(line)}</div>`).join("")}
+      <div class="actions">
+        <button class="outline" data-action="whatif-reset">Сбросить</button>
+        <button class="outline" data-action="whatif-open">Изменить</button>
+      </div>
+    </div>`;
+}
+
+function provisional(s, canPick) {
   const all = [...s.groupMatches, ...s.placementMatches];
   const live = all.filter(isLive);
   const remaining = all.filter((m) => m.winnerId == null && !isLive(m));
@@ -274,6 +383,7 @@ function provisional(s) {
           <div class="label">Ещё не сыграны · ${remaining.length}</div>
           ${remaining.map((m) => `<div class="pair">${esc(pair(m))}</div>`).join("")}
         </div>` : ""}
+      ${canPick ? whatIfButton() : ""}
     </div>`;
 }
 
@@ -323,11 +433,17 @@ function table(s) {
     </table>`;
 }
 
-function matchRow(m) {
+function matchRow(m, closed, outcomes) {
   const g = game(m);
-  const live = isLive(m);
-  const score = live ? "идёт" : g ? `${g.s1}:${g.s2}${g.walkover ? " тех." : ""}` : "–:–";
-  const cls = (p) => (m.winnerId == null ? "open" : p && p.id === m.winnerId ? "win" : "");
+  const pick = outcomes.get(m.id);
+  const live = !closed && !pick && isLive(m);
+  const score = pick ? `${pick.s1}:${pick.s2}*`
+    : g?.doubleLoss ? "тех. –:–"
+    : live ? "идёт"
+    : g ? `${g.s1}:${g.s2}${g.walkover ? " тех." : ""}`
+    : closed ? "не сост." : "–:–";
+  const winnerId = pick ? (pick.s1 > pick.s2 ? m.player1.id : m.player2.id) : m.winnerId;
+  const cls = (p) => (g?.doubleLoss ? "" : winnerId == null ? "open" : p && p.id === winnerId ? "win" : "");
   return `
     <div class="match row">
       <div class="line">
@@ -386,6 +502,27 @@ async function onAction(event) {
       } catch {
         showError("Не получилось прочитать буфер обмена — вставьте ссылку в поле вручную.");
       }
+      break;
+    case "whatif-open":
+      whatIf.open = true;
+      render();
+      break;
+    case "whatif-close":
+      whatIf.open = false;
+      render();
+      break;
+    case "whatif-apply":
+      whatIf.picks = new Map([...app.querySelectorAll("select[data-match]")]
+        .filter((select) => select.value)
+        .map((select) => [Number(select.dataset.match), select.value]));
+      whatIf.applied = whatIf.picks.size > 0;
+      whatIf.open = false;
+      render();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      break;
+    case "whatif-reset":
+      Object.assign(whatIf, { open: false, picks: new Map(), applied: false });
+      render();
       break;
     case "open-link":
       openLink(document.getElementById("link").value);

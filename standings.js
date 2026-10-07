@@ -77,8 +77,11 @@ export const tournamentTitle = (t) => {
 
 export const isFinished = (t) => t.statusCode === "finished";
 
+/** «L : L» — матч не состоялся по вине обоих: техническое поражение обоим, по 0 очков (так считает Setka) */
+export const isDoubleLoss = (m) => m.winnerId == null && m.score1 === "L" && m.score2 === "L";
+
 /** Матч идёт прямо сейчас: начат, но победителя ещё нет */
-export const isLive = (m) => m.winnerId == null && (m.statusId === 2 || m.setScores.length > 0);
+export const isLive = (m) => m.winnerId == null && !isDoubleLoss(m) && (m.statusId === 2 || m.setScores.length > 0);
 
 export const isNotStarted = (t) => t.statusCode === "public" || t.matches.every((m) => m.winnerId == null && !isLive(m));
 
@@ -94,9 +97,16 @@ export function liveScore(m) {
   return text;
 }
 
-/** Сыгранная встреча в удобном для подсчёта виде; null — ещё не сыграна */
+/**
+ * Сыгранная встреча в удобном для подсчёта виде; null — ещё не сыграна.
+ * «L : L» — встреча без победителя (doubleLoss): обоим поражение и 0 очков, партии и мячи не идут в зачёт
+ */
 export function game(m) {
-  if (!m.player1 || !m.player2 || m.winnerId == null) return null;
+  if (!m.player1 || !m.player2) return null;
+  if (isDoubleLoss(m)) {
+    return { p1: m.player1.id, p2: m.player2.id, s1: 0, s2: 0, b1: 0, b2: 0, walkover: true, doubleLoss: true, winner: null, loser: null };
+  }
+  if (m.winnerId == null) return null;
   const sets = (own) => (own === "W" ? 3 : own === "L" ? 0 : int(own));
   let s1 = sets(m.score1);
   let s2 = sets(m.score2);
@@ -127,6 +137,11 @@ function records(ids, games) {
   const result = new Map([...ids].map((id) => [id, emptyRecord()]));
   for (const g of games) {
     if (!ids.has(g.p1) || !ids.has(g.p2)) continue;
+    if (g.doubleLoss) {
+      result.get(g.p1).losses += 1;
+      result.get(g.p2).losses += 1;
+      continue;
+    }
     const loserPoints = g.walkover ? 0 : 1;
     const first = g.winner === g.p1;
     const r1 = result.get(g.p1);
@@ -217,7 +232,7 @@ class Ranker {
     const prefix = depth === 0 ? "" : `Между ${this.list(ids)}: `;
 
     // Двое и одна встреча между ними — решает она. В двухкруговых турнирах встреч две, тогда — по общим правилам
-    const between = this.games.filter((g) => subset.has(g.p1) && subset.has(g.p2));
+    const between = this.games.filter((g) => !g.doubleLoss && subset.has(g.p1) && subset.has(g.p2));
     if (ids.length === 2 && between.length === 1) {
       const g = between[0];
       const score = g.winner === g.p1 ? `${g.s1}:${g.s2}` : `${g.s2}:${g.s1}`;
@@ -266,15 +281,25 @@ class Ranker {
 /**
  * Таблица турнира: rows — игроки с местом в группе (groupPlace) и итоговым (place),
  * ties — объяснения равенств, groupMatches / placementMatches, playedCount.
- * balls: "diff" — как считает Setka (по умолчанию), "ratio" — строго по правилам ITTF
+ * balls: "diff" — как считает Setka (по умолчанию), "ratio" — строго по правилам ITTF.
+ * outcomes — исходы, выбранные для несыгранных матчей: Map id матча → { s1, s2 } (например 3:1);
+ * мячи таких матчей неизвестны и в зачёт не идут
  */
-export function standings(t, { balls = "diff" } = {}) {
+export function standings(t, { balls = "diff", outcomes = new Map() } = {}) {
   const groupMatches = t.matches.filter((m) => m.forPositionId <= 1).sort((a, b) => a.position - b.position);
   const placementMatches = t.matches.filter((m) => m.forPositionId > 1).sort((a, b) => a.forPositionId - b.forPositionId);
 
   const players = new Map();
   for (const m of t.matches) for (const p of [m.player1, m.player2]) if (p) players.set(p.id, p);
-  const games = groupMatches.map(game).filter(Boolean);
+  const gameOf = (m) => {
+    const pick = outcomes.get(m.id);
+    if (!pick || !m.player1 || !m.player2 || (m.winnerId != null) || isDoubleLoss(m)) return game(m);
+    const g = { p1: m.player1.id, p2: m.player2.id, s1: pick.s1, s2: pick.s2, b1: 0, b2: 0, walkover: false };
+    g.winner = pick.s1 > pick.s2 ? g.p1 : g.p2;
+    g.loser = pick.s1 > pick.s2 ? g.p2 : g.p1;
+    return g;
+  };
+  const games = groupMatches.map(gameOf).filter(Boolean);
 
   const ranker = new Ranker(games, players, t.officialPlaces, balls);
   const order = ranker.rank([...players.keys()].sort((a, b) => a - b));
@@ -291,9 +316,10 @@ export function standings(t, { balls = "diff" } = {}) {
 
   // Финал (forPositionId 2) решает 1–2 места, матч за 3-е (3) — 3–4
   const finalPlace = new Map(groupPlace);
+  // Несостоявшийся финал («L : L» или без результата у закрытого турнира) — места остаются по группе
   for (const m of placementMatches) {
-    const g = game(m);
-    if (!g) continue;
+    const g = gameOf(m);
+    if (!g || g.doubleLoss) continue;
     const base = m.forPositionId === 2 ? 1 : m.forPositionId;
     finalPlace.set(g.winner, base);
     finalPlace.set(g.loser, base + 1);
@@ -323,8 +349,8 @@ export function standings(t, { balls = "diff" } = {}) {
  * Игроки, чьё место было бы другим по правилам ITTF (мячи по соотношению, а не по разнице),
  * по порядку мест ITTF; пусто — правила дают одинаковый результат
  */
-export function ittfDifference(t, s) {
-  const ittf = new Map(standings(t, { balls: "ratio" }).rows.map((r) => [r.player.id, r.place]));
+export function ittfDifference(t, s, outcomes = new Map()) {
+  const ittf = new Map(standings(t, { balls: "ratio", outcomes }).rows.map((r) => [r.player.id, r.place]));
   return s.rows
     .filter((r) => ittf.get(r.player.id) !== r.place)
     .map((r) => ({ player: r.player, place: r.place, ittfPlace: ittf.get(r.player.id) }))
