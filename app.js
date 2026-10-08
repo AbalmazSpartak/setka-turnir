@@ -1,13 +1,13 @@
-import { API_URL } from "./config.js?v=20";
+import { API_URL } from "./config.js?v=21";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=20";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=20";
-import { toCSV } from "./precedents-csv.js?v=20";
+} from "./standings.js?v=21";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=21";
+import { toCSV } from "./precedents-csv.js?v=21";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=20";
+} from "./testmode.js?v=21";
 
 const app = document.getElementById("app");
 
@@ -581,6 +581,7 @@ function tournamentView(t) {
         <button class="outline small toggle" data-action="toggle-ratios" aria-pressed="${showRatios}">Коэффициенты</button>
       </div>
       <div class="card">${table(s)}</div>
+      <p class="note ratio-note">Под счётом — коэффициенты за весь турнир. Места при равных очках решают не они, а встречи между этими игроками — что именно решило, написано под игроком (↳) и подробнее в «Почему так».</p>
       <div class="section-title">Результаты встреч</div>
       <div class="card cross-wrap">${crossTable(s, closed, outcomes)}</div>
       <p class="note">Нажмите на игрока — его встречи подсветятся здесь и в списке матчей. Нажмите ещё раз, чтобы снять.</p>
@@ -831,7 +832,11 @@ function table(s) {
             <td>${r.record.setsWon}:${r.record.setsLost}${ratio(r.record.setsWon, r.record.setsLost)}</td>
             <td class="balls">${r.record.ballsWon}:${r.record.ballsLost}${ratio(r.record.ballsWon, r.record.ballsLost)}</td>
             <td class="points">${r.record.points}</td>
-          </tr>`).join("")}
+          </tr>
+          ${s.decided?.has(r.player.id) ? `
+            <tr class="decided-row" data-players="${r.player.id}">
+              <td></td><td colspan="5">↳ ${esc(capitalize(s.decided.get(r.player.id)))}</td>
+            </tr>` : ""}`).join("")}
       </tbody>
     </table>`;
 }

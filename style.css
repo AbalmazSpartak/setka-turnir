@@ -91,6 +91,10 @@ button.toggle[aria-pressed="true"] { background: var(--accent); color: #fff; }
 /* Дроби под счётом партий и мячей — по кнопке «Дроби» */
 .ratio { display: none; font-size: 11px; color: var(--muted); font-weight: 400; }
 .show-ratios .ratio { display: block; }
+.decided-row, .ratio-note { display: none; }
+.show-ratios .decided-row { display: table-row; }
+.show-ratios .ratio-note { display: block; }
+table.standings tr.decided-row td { padding-top: 0; padding-bottom: 8px; text-align: left; white-space: normal; font-size: 12px; color: var(--muted); }
 
 .card {
   background: var(--card);

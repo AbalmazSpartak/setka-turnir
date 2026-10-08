@@ -249,6 +249,8 @@ class Ranker {
     this.balls = balls;
     this.ties = [];
     this.noMeeting = [];
+    /** Что решило место игрока с равными очками: id → «партии между собой: 5:4 (1,250)» */
+    this.decided = new Map();
   }
 
   name(id) {
@@ -289,7 +291,10 @@ class Ranker {
     if (ids.length === 2 && between.length === 1) {
       const g = between[0];
       const score = g.winner === g.p1 ? `${g.s1}:${g.s2}` : `${g.s2}:${g.s1}`;
-      lines.push(`${prefix}личная встреча — ${this.name(g.winner)} выиграл ${score}${g.walkover ? " (тех.)" : ""}`);
+      const tech = g.walkover ? " (тех.)" : "";
+      lines.push(`${prefix}личная встреча — ${this.name(g.winner)} выиграл ${score}${tech}`);
+      this.decided.set(g.winner, `личная встреча: победа ${score}${tech}, соперник — ${this.name(g.loser)}`);
+      this.decided.set(g.loser, `личная встреча: поражение ${score.split(":").reverse().join(":")}${tech}, соперник — ${this.name(g.winner)}`);
       return [[g.winner], [g.loser]];
     }
     if (ids.length === 2 && between.length === 0) return this.breakWithoutMeeting(ids, lines, prefix);
@@ -320,6 +325,7 @@ class Ranker {
       const values = buckets.flat().map((id) => `${this.name(id)} ${c.label(id)}`).join(" · ");
       const lead = equal.length ? `${equal.join(", ")}, поэтому ` : "";
       lines.push(`${prefix}${lead}${c.name}: ${values}`);
+      for (const id of ids) this.decided.set(id, `${c.name}: ${c.label(id)}`);
       const order = [];
       for (const bucket of buckets) {
         if (bucket.length === 1) order.push(bucket);
@@ -328,6 +334,7 @@ class Ranker {
       return order;
     }
     lines.push(`${prefix}всё поровну — ${equal.join(", ")}. Места решает жребий`);
+    for (const id of ids) this.decided.set(id, "жребий: во встречах между собой всё поровну");
     const lot = (id) => this.lotOrder.get(id) ?? Number.MAX_SAFE_INTEGER;
     return [[...ids].sort((a, b) => lot(a) - lot(b))];
   }
@@ -357,10 +364,12 @@ class Ranker {
       lines.push(`${prefix}${reason} — как у Setka в таких случаях, решает общий счёт: ${lead}${c.short}: ${
         buckets.flat().map((id) => `${this.name(id)} ${label(id)}`).join(" · ")}`);
       this.noMeeting.push({ ids: buckets.flat(), doubleLoss, decided: true });
+      for (const id of ids) this.decided.set(id, `встречи не было — ${c.short}: ${label(id)}`);
       return buckets;
     }
     lines.push(`${prefix}${reason}, общий счёт тоже равный — ${equal.join(", ")}. Места решает жребий`);
     this.noMeeting.push({ ids, doubleLoss, decided: false });
+    for (const id of ids) this.decided.set(id, "жребий: встречи не было, общий счёт равный");
     const lot = (id) => this.lotOrder.get(id) ?? Number.MAX_SAFE_INTEGER;
     return [[...ids].sort((a, b) => lot(a) - lot(b))];
   }
@@ -425,6 +434,7 @@ export function standings(t, { balls = "ratio", outcomes = new Map() } = {}) {
     rows,
     ties: ranker.ties,
     noMeeting: ranker.noMeeting,
+    decided: ranker.decided,
     groupMatches,
     placementMatches,
     playedCount: games.length,
