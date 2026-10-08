@@ -1,13 +1,13 @@
-import { API_URL } from "./config.js?v=9";
+import { API_URL } from "./config.js?v=10";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=9";
-import { SITUATIONS, detectSituations } from "./situations.js?v=9";
-import { toCSV } from "./precedents-csv.js?v=9";
+} from "./standings.js?v=10";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=10";
+import { toCSV } from "./precedents-csv.js?v=10";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=9";
+} from "./testmode.js?v=10";
 
 const app = document.getElementById("app");
 
@@ -36,7 +36,7 @@ const today = () => {
 function state() {
   const p = new URLSearchParams(location.search);
   const int = (name) => (p.has(name) ? Number.parseInt(p.get(name), 10) : null);
-  return { date: p.get("date"), hall: int("hall"), period: int("period"), id: int("t"), test: p.get("test"), d: p.get("d") };
+  return { date: p.get("date"), hall: int("hall"), period: int("period"), id: int("t"), test: p.get("test"), d: p.get("d"), stats: p.get("stats"), q: p.get("q") ?? "" };
 }
 
 /** Сколько шагов назад внутри страницы — чтобы «Назад» не уводил с сайта */
@@ -65,7 +65,10 @@ async function render() {
   const token = ++renderToken;
   const s = state();
   try {
-    if (s.test) {
+    if (s.stats != null) {
+      app.innerHTML = statsView(s);
+      document.title = "Статистика случаев — Турнир";
+    } else if (s.test) {
       renderTest(s);
     } else if (s.date && s.id != null) {
       app.innerHTML = loadingTournament();
@@ -202,6 +205,7 @@ function home(s, { tournaments, linkMatches, loading, message } = {}) {
   return `
     <div class="title-row">
       <h1>Турнир</h1>
+      <button class="outline small" data-action="stats-open" title="Нестандартные случаи за год">📊</button>
       <button class="outline small" data-action="test-open" title="Свой турнир для проверки логики">🧪 Тест</button>
     </div>
     <div class="section-title">Ссылка на турнир</div>
@@ -236,8 +240,98 @@ function home(s, { tournaments, linkMatches, loading, message } = {}) {
 
 function csvLink() {
   if (!precedents) return "";
-  const rows = Object.values(precedents.tournaments).reduce((n, t) => n + t.situations.length, 0);
-  return `<p class="note"><a href="#" data-action="download-csv">⬇ База нестандартных случаев (CSV)</a> — ${rows} записей за ${shortDate(precedents.from)}.${precedents.from.slice(2, 4)}–${shortDate(precedents.to)}.${precedents.to.slice(2, 4)}, со ссылками на Setka Cup</p>`;
+  const count = Object.keys(precedents.tournaments).length;
+  return `<p class="note"><a href="?stats=all" data-action="stats-open">📊 Статистика нестандартных случаев</a> — ${count} турниров за ${period()}, со ссылками на Setka Cup и выгрузкой в CSV</p>`;
+}
+
+/** «08.10.25–07.10.26» */
+const period = () =>
+  `${shortDate(precedents.from)}.${precedents.from.slice(2, 4)}–${shortDate(precedents.to)}.${precedents.to.slice(2, 4)}`;
+
+// --- 📊 Статистика: база нестандартных случаев за год (precedents.json) ---
+
+/** Сколько случаев показывать в списке; «Показать ещё» добавляет */
+let statsLimit = 50;
+
+function statsView(s) {
+  const top = `
+    <div class="topbar">
+      <div class="side"><button class="ghost" data-action="back">‹ Назад</button></div>
+      <h2>📊 Статистика</h2>
+      <div class="side end"></div>
+    </div>`;
+  if (!precedents) return `${top}<div class="center"><span class="spinner"></span></div>`;
+
+  const all = Object.entries(precedents.tournaments)
+    .map(([id, t]) => ({ id: Number(id), ...t }))
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+  const filter = s.stats === "all" ? "" : s.stats;
+  const query = s.q.trim().toLowerCase();
+  const list = all.filter((c) =>
+    (!filter || c.situations.includes(filter)) &&
+    (!query || `${c.title} ${Object.values(c.details ?? {}).join(" ")}`.toLowerCase().includes(query)));
+  const checked = all.filter((c) => c.setka != null);
+  const confirmed = checked.filter((c) => c.setka).length;
+  const titles = Object.fromEntries(SITUATIONS.map((x) => [x.key, x.title]));
+
+  return `
+    ${top}
+    <div class="card pad stats-head">
+      <div class="stats-big">${all.length}<span>нестандартных турниров</span></div>
+      <p>За ${period()} просмотрено ${precedents.scanned?.toLocaleString("ru") ?? "—"} закрытых турниров Setka Cup.
+        Места, посчитанные по правилам ITTF, совпали с официальными в ${confirmed} из ${checked.length} нестандартных турниров.
+        Обновляется само каждый понедельник.</p>
+      <button class="outline small" data-action="download-csv">⬇ Скачать CSV</button>
+    </div>
+
+    <div class="section-title">По видам</div>
+    <div class="card">
+      ${SITUATIONS.map((x) => {
+        const st = precedents.situations[x.key] ?? { total: 0, confirmed: 0, mismatched: 0 };
+        const active = filter === x.key;
+        return `
+          <button class="stat-row row ${active ? "active" : ""}" data-action="stats-filter" data-key="${active ? "all" : x.key}">
+            <span class="info">
+              <span class="name">${esc(x.title)}</span><br>
+              ${active ? `<span class="sub">${esc(x.conclusion)}</span><br>` : ""}
+              <span class="sub">${x.key === "setkaDiffers" ? "исключения из правил" : `совпало с Setka: ${st.confirmed} из ${st.confirmed + st.mismatched}`}</span>
+            </span>
+            <span class="stat-count">${st.total}</span>
+          </button>`;
+      }).join("")}
+    </div>
+
+    <div class="section-title">${filter ? esc(titles[filter]) : "Все случаи"} · ${list.length}</div>
+    <div class="stats-search">
+      <input type="search" id="stats-q" value="${esc(s.q)}" placeholder="Поиск: фамилия или зал" autocomplete="off">
+      ${filter ? `<button class="outline small" data-action="stats-filter" data-key="all">Все виды</button>` : ""}
+    </div>
+    <div class="card">
+      ${list.length ? list.slice(0, statsLimit).map((c) => caseRow(c, titles, filter)).join("") : `<div class="center">Ничего не найдено</div>`}
+    </div>
+    ${list.length > statsLimit ? `<div class="actions" style="justify-content:center;margin-top:12px">
+      <button class="outline" data-action="stats-more">Показать ещё · осталось ${list.length - statsLimit}</button></div>` : ""}
+    ${footer()}`;
+}
+
+const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+
+function caseRow(c, titles, filter) {
+  const keys = filter ? [filter] : c.situations;
+  return `
+    <div class="case-row row">
+      <div class="case-top">
+        <span class="case-date">${c.date.split("-").reverse().join(".")}</span>
+        <span class="case-title">${esc(c.title)}</span>
+        ${c.setka === false ? `<span class="badge warn-badge">не как у Setka</span>` : ""}
+      </div>
+      ${keys.map((key) => `
+        <div class="case-line"><b>${esc(titles[key] ?? key)}.</b> ${esc(capitalize(c.details?.[key] ?? ""))}</div>`).join("")}
+      <div class="case-actions">
+        <a href="${esc(setkaLink(c.date, c.hall, c.period))}" target="_blank" rel="noopener">Setka Cup ↗</a>
+        <a href="?date=${esc(c.date)}&t=${c.id}" data-action="open" data-date="${esc(c.date)}" data-id="${c.id}">Наш расчёт ›</a>
+      </div>
+    </div>`;
 }
 
 /** «2026-10-05 Мужчины Утро Африка» → категория «Мужчины», время дня «Утро», зал «Африка» */
@@ -646,6 +740,15 @@ function bind() {
       openLink(link.value);
     }
   });
+  // Статистика: поиск по Enter или при уходе с поля
+  const search = document.getElementById("stats-q");
+  const runSearch = () => {
+    statsLimit = 50;
+    go({ stats: state().stats, q: search.value.trim() }, { replace: true });
+    document.getElementById("stats-q")?.focus();
+  };
+  search?.addEventListener("change", runSearch);
+  search?.addEventListener("keydown", (e) => e.key === "Enter" && (e.preventDefault(), runSearch()));
   // Тест: подсказка «партии не сходятся со счётом» обновляется сразу
   for (const field of app.querySelectorAll("[data-result], [data-sets]")) {
     field.addEventListener("change", () => {
@@ -681,6 +784,18 @@ async function onAction(event) {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       break;
     }
+    case "stats-open":
+      statsLimit = 50;
+      go({ stats: "all" });
+      break;
+    case "stats-filter":
+      statsLimit = 50;
+      go({ stats: el.dataset.key, q: state().q }, { replace: true });
+      break;
+    case "stats-more":
+      statsLimit += 50;
+      render();
+      break;
     case "test-open":
       go({ test: "edit" });
       break;
