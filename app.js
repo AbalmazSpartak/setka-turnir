@@ -1,13 +1,13 @@
-import { API_URL } from "./config.js?v=10";
+import { API_URL } from "./config.js?v=11";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=10";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=10";
-import { toCSV } from "./precedents-csv.js?v=10";
+} from "./standings.js?v=11";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=11";
+import { toCSV } from "./precedents-csv.js?v=11";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=10";
+} from "./testmode.js?v=11";
 
 const app = document.getElementById("app");
 
@@ -107,7 +107,7 @@ function renderTest(s) {
   if (s.test === "view" && data) {
     testDraft = data;
     app.innerHTML = tournamentView(buildTournament(data));
-    document.title = "Свой турнир (тест) — Турнир";
+    document.title = "Тестовый раздел — Турнир";
     return;
   }
   testDraft = data ?? testDraft ?? emptyTest();
@@ -121,10 +121,11 @@ function testEditor(data, message = "") {
   return `
     <div class="topbar">
       <div class="side"><button class="ghost" data-action="back">‹ Назад</button></div>
-      <h2>🧪 Свой турнир</h2>
+      <h2>🧪 Тестовый раздел</h2>
       <div class="side end"></div>
     </div>
-    <p class="note">Введите игроков и результаты — места посчитаются так же, как для турниров Setka. Удобно проверять необычные ситуации: равенства, неявки, «L : L».</p>
+    <p class="note footnote">Этот раздел создан не для того, чтобы подтвердить ваши результаты, а для того, чтобы возможными манипуляциями сломать логику приложения и выявить погрешности.</p>
+    <p class="note">Введите игроков и результаты — места посчитаются так же, как для турниров Setka. Пробуйте необычные ситуации: равенства, неявки, «L : L».</p>
     ${message ? `<p class="note error">${esc(message)}</p>` : ""}
     <div class="section-title">Игроки · ${data.players.length}</div>
     <div class="card pad">
@@ -206,7 +207,7 @@ function home(s, { tournaments, linkMatches, loading, message } = {}) {
     <div class="title-row">
       <h1>Турнир</h1>
       <button class="outline small" data-action="stats-open" title="Нестандартные случаи за год">📊</button>
-      <button class="outline small" data-action="test-open" title="Свой турнир для проверки логики">🧪 Тест</button>
+      <button class="outline small" data-action="test-open" title="Тестовый раздел: попробовать сломать логику подсчёта">🧪 Тест</button>
     </div>
     <div class="section-title">Ссылка на турнир</div>
     <div class="card pad">
