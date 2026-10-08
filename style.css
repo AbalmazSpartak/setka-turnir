@@ -75,6 +75,14 @@ button.icon { font-size: 24px; line-height: 1; padding: 4px 6px; }
   color: var(--muted);
 }
 .note { margin: 6px 4px 0; font-size: 13px; color: var(--muted); }
+.section-title.with-action { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.section-title button { text-transform: none; letter-spacing: 0; }
+button.toggle { padding: 3px 12px; font-size: 13px; }
+button.toggle[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+/* Дроби под счётом партий и мячей — по кнопке «Дроби» */
+.ratio { display: none; font-size: 11px; color: var(--muted); font-weight: 400; }
+.show-ratios .ratio { display: block; }
 
 .card {
   background: var(--card);

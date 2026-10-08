@@ -1,13 +1,13 @@
-import { API_URL } from "./config.js?v=17";
+import { API_URL } from "./config.js?v=18";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=17";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=17";
-import { toCSV } from "./precedents-csv.js?v=17";
+} from "./standings.js?v=18";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=18";
+import { toCSV } from "./precedents-csv.js?v=18";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=17";
+} from "./testmode.js?v=18";
 
 const app = document.getElementById("app");
 
@@ -405,6 +405,11 @@ function rowTitle(t, inHall) {
 /** id турнира, открыт ли выбор, выбранные исходы (id матча → «1:3:1» — победил первый 3:1) и применены ли они */
 const whatIf = { id: null, open: false, picks: new Map(), applied: false };
 
+/** Кнопка «Дроби» у таблицы: показывать соотношения партий и мячей. Запоминается в браузере, если он позволяет */
+let showRatios = (() => {
+  try { return localStorage.getItem("showRatios") === "1"; } catch { return false; }
+})();
+
 /** Выбранный игрок: подсветка его встреч в таблицах и списке матчей. Сбрасывается при переходе к другому турниру */
 const picked = { tournament: null, player: null };
 
@@ -457,8 +462,11 @@ function tournamentView(t) {
             <div class="final-row row">${place(r.place)}<span>${esc(fullName(r.player))}</span></div>`).join("")}
         </div>
         ${notHeld(t, s)}` : ""}
-      <div class="section-title">${whatIf.applied ? "Таблица с выбранными исходами"
-        : s.isGroupComplete || closed ? (s.hasPlacementMatches ? "Группа" : "Таблица") : "Таблица лидеров сейчас"}</div>
+      <div class="section-title with-action">
+        <span>${whatIf.applied ? "Таблица с выбранными исходами"
+          : s.isGroupComplete || closed ? (s.hasPlacementMatches ? "Группа" : "Таблица") : "Таблица лидеров сейчас"}</span>
+        <button class="outline small toggle" data-action="toggle-ratios" aria-pressed="${showRatios}">Дроби</button>
+      </div>
       <div class="card">${table(s)}</div>
       <div class="section-title">Результаты встреч</div>
       <div class="card cross-wrap">${crossTable(s, closed, outcomes)}</div>
@@ -690,6 +698,12 @@ function place(n) {
   return `<span class="place ${n <= 3 ? `p${n}` : ""}">${n}</span>`;
 }
 
+/** Дробь «выиграно ÷ проиграно» под счётом; видна, когда включена кнопка «Дроби» */
+function ratio(won, lost) {
+  const text = lost ? (won / lost).toFixed(3).replace(".", ",") : won ? "∞" : "—";
+  return `<div class="ratio">${text}</div>`;
+}
+
 function table(s) {
   const rows = [...s.rows].sort((a, b) => a.groupPlace - b.groupPlace);
   return `
@@ -701,8 +715,8 @@ function table(s) {
             <td>${place(r.groupPlace)}</td>
             <td class="player"><div class="last">${esc(r.player.lastName)}</div><div class="first">${esc(r.player.firstName)}${r.byLot ? " · жребий" : ""}</div></td>
             <td>${r.record.wins}–${r.record.losses}</td>
-            <td>${r.record.setsWon}:${r.record.setsLost}</td>
-            <td class="balls">${r.record.ballsWon}:${r.record.ballsLost}</td>
+            <td>${r.record.setsWon}:${r.record.setsLost}${ratio(r.record.setsWon, r.record.setsLost)}</td>
+            <td class="balls">${r.record.ballsWon}:${r.record.ballsLost}${ratio(r.record.ballsWon, r.record.ballsLost)}</td>
             <td class="points">${r.record.points}</td>
           </tr>`).join("")}
       </tbody>
@@ -798,6 +812,7 @@ function footer() {
 function bind() {
   app.querySelectorAll("[data-action]").forEach((el) => el.addEventListener("click", onAction));
   applyPick();
+  app.classList.toggle("show-ratios", showRatios);
   const day = document.getElementById("day");
   day?.addEventListener("change", () => day.value && go({ date: day.value }));
   const link = document.getElementById("link");
@@ -933,6 +948,12 @@ async function onAction(event) {
     case "whatif-reset":
       Object.assign(whatIf, { open: false, picks: new Map(), applied: false });
       render();
+      break;
+    case "toggle-ratios":
+      showRatios = !showRatios;
+      try { localStorage.setItem("showRatios", showRatios ? "1" : "0"); } catch { /* приватный режим */ }
+      app.classList.toggle("show-ratios", showRatios);
+      el.setAttribute("aria-pressed", String(showRatios));
       break;
     case "pick-player": {
       const id = Number(el.dataset.player);
