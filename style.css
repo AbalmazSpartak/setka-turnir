@@ -172,13 +172,15 @@ table.standings th.player { text-align: left; }
 table.standings td { padding: 7px 6px; text-align: right; font-size: 15px; white-space: nowrap; }
 table.standings td:first-child, table.standings th:first-child { padding-left: 12px; width: 40px; }
 table.standings td:last-child, table.standings th:last-child { padding-right: 14px; }
-table.standings td.player { text-align: left; white-space: normal; width: 100%; }
+/* Игрок забирает оставшуюся ширину, но не раздвигает таблицу: длинная фамилия обрезается «…», цифры всегда видны */
+table.standings td.player { text-align: left; white-space: normal; width: 100%; max-width: 0; }
+.player .last, .player .first { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player .last { font-weight: 600; }
 .player .first { font-size: 11px; color: var(--muted); }
 td.balls { color: var(--muted); }
 td.points { font-weight: 700; }
 
-@media (max-width: 380px) {
+@media (max-width: 400px) {
   table.standings td, table.standings th { padding-left: 4px; padding-right: 4px; }
   table.standings td { font-size: 14px; }
 }
@@ -197,6 +199,12 @@ table.cross .win { font-weight: 700; }
 table.cross .loss { color: var(--muted); }
 table.cross .live { color: var(--live); font-weight: 600; }
 table.cross .wait { color: var(--muted); font-size: 12px; }
+@media (max-width: 400px) {
+  table.cross { font-size: 13px; }
+  table.cross th, table.cross td { padding-left: 3px; padding-right: 3px; }
+  table.cross th.name { padding-left: 10px; }
+  table.cross td:last-child, table.cross th:last-child { padding-right: 10px; padding-left: 6px; }
+}
 
 /* Выбранный игрок: его строки и встречи подсвечены, остальные матчи приглушены */
 .pickable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
