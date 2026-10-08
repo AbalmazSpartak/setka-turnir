@@ -209,6 +209,34 @@ export function playersNoun(n) {
   return "игроков";
 }
 
+/**
+ * Подпись «5:4 (1,250)»: счёт и его соотношение. Знаков после запятой — 3, а если разные соотношения
+ * при этом выглядят одинаково (0,978 и 0,978), — столько, чтобы стала видна разница
+ */
+function ratioLabel(ids, wonLost) {
+  const value = (id) => {
+    const [won, lost] = wonLost(id);
+    return lost === 0 ? Infinity : won / lost;
+  };
+  const values = ids.map(value).filter(Number.isFinite);
+  let digits = 3;
+  const distinct = (d) => {
+    const seen = new Map();
+    return values.every((v) => {
+      const text = v.toFixed(d);
+      if (seen.has(text) && seen.get(text) !== v) return false;
+      seen.set(text, v);
+      return true;
+    });
+  };
+  while (digits < 6 && !distinct(digits)) digits++;
+  return (id) => {
+    const [won, lost] = wonLost(id);
+    const v = value(id);
+    return `${won}:${lost} (${Number.isFinite(v) ? v.toFixed(digits).replace(".", ",") : "∞"})`;
+  };
+}
+
 const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : "0");
 
 class Ranker {
@@ -265,14 +293,15 @@ class Ranker {
 
     const criteria = [
       { name: "очки во встречах между собой", short: "очки", key: (id) => [rec.get(id).points, 1], label: (id) => `${rec.get(id).points}` },
-      { name: "партии между собой", short: "партии", key: (id) => [rec.get(id).setsWon, rec.get(id).setsLost], label: (id) => `${rec.get(id).setsWon}:${rec.get(id).setsLost}` },
+      { name: "партии между собой", short: "партии", key: (id) => [rec.get(id).setsWon, rec.get(id).setsLost],
+        label: ratioLabel(ids, (id) => [rec.get(id).setsWon, rec.get(id).setsLost]) },
       this.balls === "diff"
         ? { name: "разница мячей между собой", short: "разница мячей",
             key: (id) => [rec.get(id).ballsWon - rec.get(id).ballsLost, 1],
             label: (id) => `${rec.get(id).ballsWon}:${rec.get(id).ballsLost} (${signed(rec.get(id).ballsWon - rec.get(id).ballsLost)})` }
         : { name: "мячи между собой", short: "мячи",
             key: (id) => [rec.get(id).ballsWon, rec.get(id).ballsLost],
-            label: (id) => `${rec.get(id).ballsWon}:${rec.get(id).ballsLost}` },
+            label: ratioLabel(ids, (id) => [rec.get(id).ballsWon, rec.get(id).ballsLost]) },
     ];
     // Равные показатели собираются в одну фразу: «очки по 3, партии по 5:5»
     const equal = [];
