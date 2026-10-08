@@ -233,6 +233,7 @@ function ratioLabel(ids, wonLost) {
   return (id) => {
     const [won, lost] = wonLost(id);
     const v = value(id);
+    if (won === 0 && lost === 0) return "0:0";
     return `${won}:${lost} (${Number.isFinite(v) ? v.toFixed(digits).replace(".", ",") : "∞"})`;
   };
 }
@@ -247,6 +248,7 @@ class Ranker {
     this.lotOrder = lotOrder;
     this.balls = balls;
     this.ties = [];
+    this.noMeeting = [];
   }
 
   name(id) {
@@ -290,6 +292,7 @@ class Ranker {
       lines.push(`${prefix}личная встреча — ${this.name(g.winner)} выиграл ${score}${g.walkover ? " (тех.)" : ""}`);
       return [[g.winner], [g.loser]];
     }
+    if (ids.length === 2 && between.length === 0) return this.breakWithoutMeeting(ids, lines, prefix);
 
     const criteria = [
       { name: "очки во встречах между собой", short: "очки", key: (id) => [rec.get(id).points, 1], label: (id) => `${rec.get(id).points}` },
@@ -325,6 +328,39 @@ class Ranker {
       return order;
     }
     lines.push(`${prefix}всё поровну — ${equal.join(", ")}. Места решает жребий`);
+    const lot = (id) => this.lotOrder.get(id) ?? Number.MAX_SAFE_INTEGER;
+    return [[...ids].sort((a, b) => lot(a) - lot(b))];
+  }
+
+  /**
+   * Двое равных, а встречи между ними не было («L : L» или матч не сыгран): сравнивать между собой нечего.
+   * Тогда — соотношение партий за весь турнир, затем мячей, и только потом жребий.
+   * Это не из правил ITTF, а по примеру Setka: так она расставила все 5 таких пар за год (10.2025–10.2026)
+   */
+  breakWithoutMeeting(ids, lines, prefix) {
+    const all = records(new Set(this.players.keys()), this.games);
+    const doubleLoss = this.games.some((g) => g.doubleLoss && ids.includes(g.p1) && ids.includes(g.p2));
+    const reason = doubleLoss ? "их матч не состоялся (L : L)" : "встречи между ними не было";
+    const criteria = [
+      { short: "партии за турнир", key: (id) => [all.get(id).setsWon, all.get(id).setsLost] },
+      { short: "мячи за турнир", key: (id) => [all.get(id).ballsWon, all.get(id).ballsLost] },
+    ];
+    const equal = [];
+    for (const c of criteria) {
+      const label = ratioLabel(ids, c.key);
+      const buckets = split(ids, c.key);
+      if (buckets.length === 1) {
+        equal.push(`${c.short} по ${label(ids[0])}`);
+        continue;
+      }
+      const lead = equal.length ? `${equal.join(", ")}, поэтому ` : "";
+      lines.push(`${prefix}${reason} — как у Setka в таких случаях, решает общий счёт: ${lead}${c.short}: ${
+        buckets.flat().map((id) => `${this.name(id)} ${label(id)}`).join(" · ")}`);
+      this.noMeeting.push({ ids: buckets.flat(), doubleLoss, decided: true });
+      return buckets;
+    }
+    lines.push(`${prefix}${reason}, общий счёт тоже равный — ${equal.join(", ")}. Места решает жребий`);
+    this.noMeeting.push({ ids, doubleLoss, decided: false });
     const lot = (id) => this.lotOrder.get(id) ?? Number.MAX_SAFE_INTEGER;
     return [[...ids].sort((a, b) => lot(a) - lot(b))];
   }
@@ -388,6 +424,7 @@ export function standings(t, { balls = "ratio", outcomes = new Map() } = {}) {
   return {
     rows,
     ties: ranker.ties,
+    noMeeting: ranker.noMeeting,
     groupMatches,
     placementMatches,
     playedCount: games.length,

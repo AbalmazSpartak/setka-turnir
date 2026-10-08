@@ -1,13 +1,13 @@
-import { API_URL } from "./config.js?v=12";
+import { API_URL } from "./config.js?v=13";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=12";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=12";
-import { toCSV } from "./precedents-csv.js?v=12";
+} from "./standings.js?v=13";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=13";
+import { toCSV } from "./precedents-csv.js?v=13";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=12";
+} from "./testmode.js?v=13";
 
 const app = document.getElementById("app");
 

@@ -57,6 +57,17 @@ export const SITUATIONS = [
     details: (t) => t.matches.filter((m) => m.forPositionId <= 1 && isDoubleLoss(m)).map((m) => `${pairText(m)}: L : L`).join("; "),
   },
   {
+    key: "noMeeting",
+    title: "Равные очки, а встречи между ними не было",
+    conclusion: "Сравнить встречи между собой нельзя — их нет. Правила ITTF тут предлагают жребий, но Setka, судя по прошлым турнирам, ставит выше того, у кого лучше соотношение партий за весь турнир (при равенстве — мячей). Это наш вывод по прошлым случаям, а не опубликованное правило Setka.",
+    detect: (t, s) => isFinished(t) && (s.noMeeting ?? []).length > 0,
+    details: (t, s) => s.noMeeting.map(({ ids, doubleLoss, decided }) => {
+      const names = ids.map((id) => name(playerById(t, id)));
+      const why = doubleLoss ? "матч L : L" : "матч не сыгран";
+      return decided ? `${names.join(" выше ")} по общему счёту (${why})` : `${names.join(" и ")}: ${why}, общий счёт равный — жребий`;
+    }).join("; "),
+  },
+  {
     key: "interrupted",
     title: "Матч прерван — засчитана техническая победа",
     conclusion: "Setka засчитывает техническую победу (2 очка, 3:0 по партиям), а мячи сыгранных партий тоже идут в зачёт.",
