@@ -1,13 +1,13 @@
-import { API_URL } from "./config.js?v=15";
+import { API_URL } from "./config.js?v=16";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=15";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=15";
-import { toCSV } from "./precedents-csv.js?v=15";
+} from "./standings.js?v=16";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=16";
+import { toCSV } from "./precedents-csv.js?v=16";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=15";
+} from "./testmode.js?v=16";
 
 const app = document.getElementById("app");
 
@@ -124,7 +124,7 @@ function testEditor(data, message = "") {
       <h2>🧪 Тестовый раздел</h2>
       <div class="side end"></div>
     </div>
-    <p class="note footnote">Этот раздел создан не для того, чтобы подтвердить ваши результаты, а для того, чтобы возможными манипуляциями сломать логику приложения и выявить погрешности.</p>
+    <p class="note footnote">Цель этого раздела — не подтверждение ваших результатов, а проверка логики приложения на излом и выявление погрешностей с помощью различных манипуляций.</p>
     <p class="note">Введите игроков и результаты — места посчитаются так же, как для турниров Setka. Пробуйте необычные ситуации: равенства, неявки, «L : L».</p>
     ${message ? `<p class="note error">${esc(message)}</p>` : ""}
     <div class="section-title">Игроки · ${data.players.length}</div>
