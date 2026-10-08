@@ -2,9 +2,10 @@
 // Очки: победа 2, поражение 1, техническое поражение 0. При равенстве очков сравниваются
 // только встречи между равными: очки, затем соотношение партий, затем мячей. Кто отделился —
 // выбывает, остальные сравниваются заново между собой. Полное равенство — жребий.
-// Отличие Setka от ITTF: мячи сравниваются по разнице, а не по соотношению (balls: "diff").
-// С ним места совпали с официальными Setka в 2233 из 2238 турниров (01.08–07.10.2026);
-// в остальных 5 у Setka нет итоговой таблицы. По соотношению (как в ITTF) — 2232, расходится Лондон 29.08
+// Setka считает так же: за год (08.10.2025–07.10.2026) места совпали в 11859 из 11863 турниров с итогами.
+// 4 исключения (Setka отступила от правил) показываются сноской и в «Похожих случаях».
+// Проверенные и отвергнутые варианты: мячи по разнице — 11850, соотношение с округлением — до 11859,
+// без пересчёта между оставшимися равными — 11424
 
 /** Число из поля, которое Setka присылает то числом, то строкой */
 const int = (value, fallback = 0) => {
@@ -303,11 +304,11 @@ class Ranker {
 /**
  * Таблица турнира: rows — игроки с местом в группе (groupPlace) и итоговым (place),
  * ties — объяснения равенств, groupMatches / placementMatches, playedCount.
- * balls: "diff" — как считает Setka (по умолчанию), "ratio" — строго по правилам ITTF.
+ * balls: "ratio" — по правилам ITTF, как считает Setka (по умолчанию); "diff" — по разнице, для сравнения.
  * outcomes — исходы, выбранные для несыгранных матчей: Map id матча → { s1, s2 } (например 3:1);
  * мячи таких матчей неизвестны и в зачёт не идут
  */
-export function standings(t, { balls = "diff", outcomes = new Map() } = {}) {
+export function standings(t, { balls = "ratio", outcomes = new Map() } = {}) {
   const groupMatches = t.matches.filter((m) => m.forPositionId <= 1).sort((a, b) => a.position - b.position);
   const placementMatches = t.matches.filter((m) => m.forPositionId > 1).sort((a, b) => a.forPositionId - b.forPositionId);
 
@@ -368,15 +369,15 @@ export function standings(t, { balls = "diff", outcomes = new Map() } = {}) {
 }
 
 /**
- * Игроки, чьё место было бы другим по правилам ITTF (мячи по соотношению, а не по разнице),
- * по порядку мест ITTF; пусто — правила дают одинаковый результат
+ * Официальные места Setka, которые не совпали с расчётом по правилам ITTF (по порядку мест Setka);
+ * пусто — совпали или у Setka нет итоговой таблицы
  */
-export function ittfDifference(t, s, outcomes = new Map()) {
-  const ittf = new Map(standings(t, { balls: "ratio", outcomes }).rows.map((r) => [r.player.id, r.place]));
+export function setkaDifference(t, s) {
+  if (!t.setka?.hasFinal) return [];
   return s.rows
-    .filter((r) => ittf.get(r.player.id) !== r.place)
-    .map((r) => ({ player: r.player, place: r.place, ittfPlace: ittf.get(r.player.id) }))
-    .sort((a, b) => a.ittfPlace - b.ittfPlace);
+    .filter((r) => !(t.setka.places.get(r.player.id) ?? []).includes(r.place))
+    .map((r) => ({ player: r.player, place: r.place, setkaPlace: t.setka.places.get(r.player.id)?.[0] }))
+    .sort((a, b) => a.setkaPlace - b.setkaPlace);
 }
 
 // --- Ссылка ---

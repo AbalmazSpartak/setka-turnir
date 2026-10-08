@@ -6,7 +6,7 @@
 
 - `standings.js` — подсчёт мест (тот же, что в приложениях для iPhone и Android);
 - `app.js`, `style.css`, `index.html` — страница;
-- `situations.js`, `precedents.json` — нестандартные ситуации и справочник прошлых случаев для блока «Похожие случаи»; справочник раз в неделю обновляет `.github/workflows/precedents.yml` (`node tools/precedents.mjs --fetch 14`);
+- `situations.js`, `precedents.json`, `precedents-csv.js` — нестандартные ситуации, база прошлых случаев (за год с 08.10.2025) для блока «Похожие случаи» и выгрузка в CSV со ссылками на Setka Cup; справочник раз в неделю обновляет `.github/workflows/precedents.yml` (`node tools/precedents.mjs --fetch 14`);
 - `worker/` — посредник на Cloudflare: Setka не отдаёт данные сайтам напрямую;
 - `tools/validate.mjs` — сверка с официальными местами Setka, `tools/dev-server.mjs` — локальный просмотр (`node tools/dev-server.mjs`).
 

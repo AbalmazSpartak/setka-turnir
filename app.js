@@ -1,12 +1,13 @@
-import { API_URL } from "./config.js?v=8";
+import { API_URL } from "./config.js?v=9";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
-  isLive, liveScore, game, fullName, playersNoun, ittfDifference, isDoubleLoss,
-} from "./standings.js?v=8";
-import { SITUATIONS, detectSituations } from "./situations.js?v=8";
+  isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
+} from "./standings.js?v=9";
+import { SITUATIONS, detectSituations } from "./situations.js?v=9";
+import { toCSV } from "./precedents-csv.js?v=9";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=8";
+} from "./testmode.js?v=9";
 
 const app = document.getElementById("app");
 
@@ -224,12 +225,19 @@ function home(s, { tournaments, linkMatches, loading, message } = {}) {
       ${loading ? `<div class="center row"><span class="spinner"></span></div>` : ""}
       ${tournaments && !tournaments.length ? `<div class="center row">Турниров нет</div>` : ""}
     </div>
+    ${csvLink()}
     ${halls(tournaments ?? []).map((hall) => `
       <div class="section-title hall">${esc(hall.name)}${hall.live ? ` <span class="badge live">идёт</span>` : ""}</div>
       <div class="card">
         ${hall.tournaments.map((t) => tournamentRow(t, date, hall.mixed)).join("")}
       </div>`).join("")}
     ${footer()}`;
+}
+
+function csvLink() {
+  if (!precedents) return "";
+  const rows = Object.values(precedents.tournaments).reduce((n, t) => n + t.situations.length, 0);
+  return `<p class="note"><a href="#" data-action="download-csv">⬇ База нестандартных случаев (CSV)</a> — ${rows} записей за ${shortDate(precedents.from)}.${precedents.from.slice(2, 4)}–${shortDate(precedents.to)}.${precedents.to.slice(2, 4)}, со ссылками на Setka Cup</p>`;
 }
 
 /** «2026-10-05 Мужчины Утро Африка» → категория «Мужчины», время дня «Утро», зал «Африка» */
@@ -353,8 +361,8 @@ function tournamentView(t) {
       <div class="section-title">${whatIf.applied ? "Таблица с выбранными исходами"
         : s.isGroupComplete || closed ? (s.hasPlacementMatches ? "Группа" : "Таблица") : "Таблица лидеров сейчас"}</div>
       <div class="card">${table(s)}</div>
-      <p class="note">Победа — 2 очка, поражение — 1, техническое поражение — 0. При равенстве мячи сравниваются по разнице, как у Setka.</p>
-      ${ittfNote(t, s, outcomes)}
+      <p class="note">Победа — 2 очка, поражение — 1, техническое поражение — 0. При равенстве мячи сравниваются по соотношению (выиграно ÷ проиграно) — по правилам ITTF, как у Setka.</p>
+      ${setkaNote(t, s, outcomes)}
       ${s.ties.length ? `
         <div class="section-title">Почему так</div>
         <div class="card pad">
@@ -385,7 +393,7 @@ fetch("precedents.json", { cache: "no-cache" })
   .then((response) => (response.ok ? response.json() : null))
   .then((data) => {
     precedents = data;
-    if (data && state().id != null) render();
+    if (data) render();
   })
   .catch(() => {});
 
@@ -400,7 +408,7 @@ function casesNoun(n) {
 
 function similarCases(t, s) {
   if (!precedents) return "";
-  const keys = detectSituations(t, s, ittfDifference(t, s));
+  const keys = detectSituations(t, s, setkaDifference(t, s));
   if (!keys.length) return "";
   const items = SITUATIONS.filter((x) => keys.includes(x.key)).map((situation) => {
     const stats = precedents.situations[situation.key] ?? { total: 0, confirmed: 0, mismatched: 0, cases: [] };
@@ -428,13 +436,14 @@ function similarCases(t, s) {
     <div class="card pad">${items.join("")}</div>`;
 }
 
-/** Сноска, если по правилам ITTF (мячи по соотношению) места были бы другими */
-function ittfNote(t, s, outcomes) {
-  const diff = ittfDifference(t, s, outcomes);
+/** Сноска, если официальные места Setka не совпали с расчётом по правилам ITTF (редкие исключения) */
+function setkaNote(t, s, outcomes) {
+  if (outcomes.size) return "";
+  const diff = setkaDifference(t, s);
   if (!diff.length) return "";
   return `
-    <p class="note footnote">* По правилам ITTF (мячи сравниваются по соотношению, а не по разнице) результат был бы:
-      ${diff.map((d) => `<b>${d.ittfPlace}. ${esc(d.player.lastName)}</b>`).join(" · ")}</p>`;
+    <p class="note footnote">* Официальные места Setka отличаются от расчёта по правилам ITTF: у Setka
+      ${diff.map((d) => `<b>${d.setkaPlace}. ${esc(d.player.lastName)}</b>`).join(" · ")}. Такое за год случилось всего в 4 турнирах из 11 863.</p>`;
 }
 
 /** Турнир закрыт, а финал или матч за 3-е место не доигран — места из таблицы группы */
@@ -660,6 +669,16 @@ async function onAction(event) {
       if (depth > 0) history.back();
       else if (s.test === "view") go({ test: "edit", d: s.d });
       else go({ date: s.date });
+      break;
+    }
+    case "download-csv": {
+      if (!precedents) break;
+      const url = URL.createObjectURL(new Blob([toCSV(precedents)], { type: "text/csv;charset=utf-8" }));
+      const a = Object.assign(document.createElement("a"), { href: url, download: `setka-sluchai-${precedents.to}.csv` });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
       break;
     }
     case "test-open":
