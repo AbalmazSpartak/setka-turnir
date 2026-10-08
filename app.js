@@ -1,13 +1,13 @@
-import { API_URL } from "./config.js?v=19";
+import { API_URL } from "./config.js?v=20";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=19";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=19";
-import { toCSV } from "./precedents-csv.js?v=19";
+} from "./standings.js?v=20";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=20";
+import { toCSV } from "./precedents-csv.js?v=20";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=19";
+} from "./testmode.js?v=20";
 
 const app = document.getElementById("app");
 
@@ -130,7 +130,7 @@ function helpView() {
       <h3>Таблица</h3>
       <ul>
         <li>Место, игрок, победы–поражения (В–П), партии, мячи и очки.</li>
-        <li>Кнопка «Дроби» показывает под партиями и мячами их соотношение за весь турнир (выиграно ÷ проиграно). Нажмите ещё раз, чтобы спрятать; выбор запоминается.</li>
+        <li>Кнопка «Коэффициенты» показывает под партиями и мячами их коэффициент за весь турнир (выиграно ÷ проиграно). Места она не меняет: при равных очках решают коэффициенты только во встречах между этими игроками — они в «Почему так». Нажмите ещё раз, чтобы спрятать; выбор запоминается.</li>
         <li>Пометка «жребий» у игрока — он равен с соседом по всем показателям (см. «Правила подсчёта»).</li>
       </ul>
       <h3>Результаты встреч</h3>
@@ -518,7 +518,7 @@ function rowTitle(t, inHall) {
 /** id турнира, открыт ли выбор, выбранные исходы (id матча → «1:3:1» — победил первый 3:1) и применены ли они */
 const whatIf = { id: null, open: false, picks: new Map(), applied: false };
 
-/** Кнопка «Дроби» у таблицы: показывать соотношения партий и мячей. Запоминается в браузере, если он позволяет */
+/** Кнопка «Коэффициенты» у таблицы: показывать соотношения партий и мячей. Запоминается в браузере, если он позволяет */
 let showRatios = (() => {
   try { return localStorage.getItem("showRatios") === "1"; } catch { return false; }
 })();
@@ -578,7 +578,7 @@ function tournamentView(t) {
       <div class="section-title with-action">
         <span>${whatIf.applied ? "Таблица с выбранными исходами"
           : s.isGroupComplete || closed ? (s.hasPlacementMatches ? "Группа" : "Таблица") : "Таблица лидеров сейчас"}</span>
-        <button class="outline small toggle" data-action="toggle-ratios" aria-pressed="${showRatios}">Дроби</button>
+        <button class="outline small toggle" data-action="toggle-ratios" aria-pressed="${showRatios}">Коэффициенты</button>
       </div>
       <div class="card">${table(s)}</div>
       <div class="section-title">Результаты встреч</div>
@@ -811,7 +811,7 @@ function place(n) {
   return `<span class="place ${n <= 3 ? `p${n}` : ""}">${n}</span>`;
 }
 
-/** Дробь «выиграно ÷ проиграно» под счётом; видна, когда включена кнопка «Дроби» */
+/** Дробь «выиграно ÷ проиграно» под счётом; видна, когда включена кнопка «Коэффициенты» */
 function ratio(won, lost) {
   const text = lost ? (won / lost).toFixed(3).replace(".", ",") : won ? "∞" : "—";
   return `<div class="ratio">${text}</div>`;
