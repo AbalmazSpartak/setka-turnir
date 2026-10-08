@@ -1,13 +1,13 @@
-import { API_URL } from "./config.js?v=14";
+import { API_URL } from "./config.js?v=15";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=14";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=14";
-import { toCSV } from "./precedents-csv.js?v=14";
+} from "./standings.js?v=15";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=15";
+import { toCSV } from "./precedents-csv.js?v=15";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=14";
+} from "./testmode.js?v=15";
 
 const app = document.getElementById("app");
 
@@ -349,7 +349,7 @@ function periodOrder(t) {
   return index === -1 ? PERIODS.length : index;
 }
 
-/** Турниры дня по залам (по алфавиту), внутри зала — по времени дня */
+/** Турниры дня по залам (Сеул и Токио, затем залы с идущим турниром, затем по алфавиту), внутри зала — по времени дня */
 function halls(tournaments) {
   const groups = new Map();
   for (const t of tournaments) {
@@ -365,10 +365,10 @@ function halls(tournaments) {
       // В зале и мужские, и женские турниры — подписываем категорию
       mixed: new Set(g.tournaments.map((t) => titleParts(t).division)).size > 1,
     }))
-    .sort((a, b) => pinOrder(a.name) - pinOrder(b.name) || a.name.localeCompare(b.name, "ru"));
+    .sort((a, b) => pinOrder(a.name) - pinOrder(b.name) || b.live - a.live || a.name.localeCompare(b.name, "ru"));
 }
 
-/** Залы, которые всегда сверху, в этом порядке; остальные — по алфавиту */
+/** Залы, которые всегда сверху, в этом порядке; за ними — залы, где идёт турнир, потом остальные по алфавиту */
 const PINNED_HALLS = ["Сеул", "Токио"];
 
 function pinOrder(name) {
