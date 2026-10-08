@@ -1,13 +1,13 @@
-import { API_URL } from "./config.js?v=13";
+import { API_URL } from "./config.js?v=14";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=13";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=13";
-import { toCSV } from "./precedents-csv.js?v=13";
+} from "./standings.js?v=14";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=14";
+import { toCSV } from "./precedents-csv.js?v=14";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=13";
+} from "./testmode.js?v=14";
 
 const app = document.getElementById("app");
 
@@ -405,6 +405,9 @@ function rowTitle(t, inHall) {
 /** id турнира, открыт ли выбор, выбранные исходы (id матча → «1:3:1» — победил первый 3:1) и применены ли они */
 const whatIf = { id: null, open: false, picks: new Map(), applied: false };
 
+/** Выбранный игрок: подсветка его встреч в таблицах и списке матчей. Сбрасывается при переходе к другому турниру */
+const picked = { tournament: null, player: null };
+
 /** Матчи, для которых можно выбрать исход: пары известны, результата нет и это не «L : L» */
 const pendingMatches = (t) =>
   t.matches.filter((m) => m.player1 && m.player2 && m.winnerId == null && !isDoubleLoss(m))
@@ -422,6 +425,7 @@ function outcomesOf(t) {
 
 function tournamentView(t) {
   if (whatIf.id !== t.id) Object.assign(whatIf, { id: t.id, open: false, picks: new Map(), applied: false });
+  if (picked.tournament !== t.id) Object.assign(picked, { tournament: t.id, player: null });
   const outcomes = outcomesOf(t);
   const s = standings(t, { outcomes });
   const closed = isFinished(t);
@@ -456,6 +460,9 @@ function tournamentView(t) {
       <div class="section-title">${whatIf.applied ? "Таблица с выбранными исходами"
         : s.isGroupComplete || closed ? (s.hasPlacementMatches ? "Группа" : "Таблица") : "Таблица лидеров сейчас"}</div>
       <div class="card">${table(s)}</div>
+      <div class="section-title">Результаты встреч</div>
+      <div class="card cross-wrap">${crossTable(s, closed, outcomes)}</div>
+      <p class="note">Нажмите на игрока — его встречи подсветятся здесь и в списке матчей. Нажмите ещё раз, чтобы снять.</p>
       <p class="note">Победа — 2 очка, поражение — 1, техническое поражение — 0. При равенстве мячи сравниваются по соотношению (выиграно ÷ проиграно) — по правилам ITTF, как у Setka.</p>
       ${setkaNote(t, s, outcomes)}
       ${s.ties.length ? `
@@ -690,7 +697,7 @@ function table(s) {
       <thead><tr><th></th><th class="player">Игрок</th><th>В–П</th><th>Партии</th><th>Мячи</th><th>Очки</th></tr></thead>
       <tbody>
         ${rows.map((r) => `
-          <tr>
+          <tr class="pickable" data-action="pick-player" data-player="${r.player.id}" data-players="${r.player.id}">
             <td>${place(r.groupPlace)}</td>
             <td class="player"><div class="last">${esc(r.player.lastName)}</div><div class="first">${esc(r.player.firstName)}${r.byLot ? " · жребий" : ""}</div></td>
             <td>${r.record.wins}–${r.record.losses}</td>
@@ -700,6 +707,64 @@ function table(s) {
           </tr>`).join("")}
       </tbody>
     </table>`;
+}
+
+/**
+ * Шахматка, как на Setka: строка — игрок (номер слева — его место), столбец — соперник, в клетке счёт по партиям глазами игрока строки.
+ * В двухкруговых турнирах в клетке обе встречи через «/»
+ */
+function crossTable(s, closed, outcomes) {
+  const rows = [...s.rows].sort((a, b) => a.groupPlace - b.groupPlace);
+  const cells = new Map();
+  const add = (a, b, cell) => cells.set(`${a}-${b}`, [...(cells.get(`${a}-${b}`) ?? []), cell]);
+  for (const m of s.groupMatches) {
+    if (!m.player1 || !m.player2) continue;
+    const a = m.player1.id, b = m.player2.id;
+    const pick = outcomes.get(m.id);
+    const g = game(m);
+    if (pick) {
+      add(a, b, { text: `${pick.s1}:${pick.s2}*`, cls: pick.s1 > pick.s2 ? "win" : "loss" });
+      add(b, a, { text: `${pick.s2}:${pick.s1}*`, cls: pick.s2 > pick.s1 ? "win" : "loss" });
+    } else if (g?.doubleLoss) {
+      add(a, b, { text: "L:L", cls: "loss" });
+      add(b, a, { text: "L:L", cls: "loss" });
+    } else if (g) {
+      const mark = g.walkover ? " тех." : "";
+      add(a, b, { text: `${g.s1}:${g.s2}${mark}`, cls: g.winner === a ? "win" : "loss" });
+      add(b, a, { text: `${g.s2}:${g.s1}${mark}`, cls: g.winner === b ? "win" : "loss" });
+    } else {
+      const live = !closed && isLive(m);
+      const text = live ? "идёт" : closed ? "не сост." : "";
+      add(a, b, { text, cls: live ? "live" : "wait" });
+      add(b, a, { text, cls: live ? "live" : "wait" });
+    }
+  }
+  const cell = (row, col) => {
+    if (row === col) return `<td class="self" data-players="${row} ${col}">●</td>`;
+    const list = cells.get(`${row}-${col}`) ?? [];
+    return `<td data-players="${row} ${col}">${list.map((c) => `<span class="${c.cls}">${esc(c.text)}</span>`).join(" / ")}</td>`;
+  };
+  return `
+    <table class="cross">
+      <thead><tr><th class="name">Игрок</th>${rows.map((r, i) => `<th data-players="${r.player.id}">${i + 1}</th>`).join("")}<th>Очки</th></tr></thead>
+      <tbody>
+        ${rows.map((r, i) => `
+          <tr>
+            <th class="name pickable" data-action="pick-player" data-player="${r.player.id}" data-players="${r.player.id}"><span class="num">${i + 1}</span>${esc(r.player.lastName)}</th>
+            ${rows.map((c) => cell(r.player.id, c.player.id)).join("")}
+            <td class="points" data-players="${r.player.id}">${r.record.points}</td>
+          </tr>`).join("")}
+      </tbody>
+    </table>`;
+}
+
+function applyPick() {
+  // На других экранах подсвечивать нечего
+  const id = app.querySelector("[data-players]") ? picked.player : null;
+  app.classList.toggle("picking", id != null);
+  for (const el of app.querySelectorAll("[data-players]")) {
+    el.classList.toggle("hl", id != null && el.dataset.players.split(" ").includes(String(id)));
+  }
 }
 
 function matchRow(m, closed, outcomes) {
@@ -714,11 +779,11 @@ function matchRow(m, closed, outcomes) {
   const winnerId = pick ? (pick.s1 > pick.s2 ? m.player1.id : m.player2.id) : m.winnerId;
   const cls = (p) => (g?.doubleLoss ? "" : winnerId == null ? "open" : p && p.id === winnerId ? "win" : "");
   return `
-    <div class="match row">
+    <div class="match row" data-players="${m.player1?.id ?? ""} ${m.player2?.id ?? ""}">
       <div class="line">
-        <span class="p ${cls(m.player1)}">${esc(m.player1?.lastName ?? "—")}</span>
+        <span class="p pickable ${cls(m.player1)}" ${m.player1 ? `data-action="pick-player" data-player="${m.player1.id}"` : ""}>${esc(m.player1?.lastName ?? "—")}</span>
         <span class="score ${live ? "live" : g ? "" : "wait"}">${score}</span>
-        <span class="p right ${cls(m.player2)}">${esc(m.player2?.lastName ?? "—")}</span>
+        <span class="p right pickable ${cls(m.player2)}" ${m.player2 ? `data-action="pick-player" data-player="${m.player2.id}"` : ""}>${esc(m.player2?.lastName ?? "—")}</span>
       </div>
       ${m.setScores.length ? `<div class="sets">${m.setScores.map((x) => `${x.p1}:${x.p2}`).join(" ")}</div>` : ""}
     </div>`;
@@ -732,6 +797,7 @@ function footer() {
 
 function bind() {
   app.querySelectorAll("[data-action]").forEach((el) => el.addEventListener("click", onAction));
+  applyPick();
   const day = document.getElementById("day");
   day?.addEventListener("change", () => day.value && go({ date: day.value }));
   const link = document.getElementById("link");
@@ -868,6 +934,12 @@ async function onAction(event) {
       Object.assign(whatIf, { open: false, picks: new Map(), applied: false });
       render();
       break;
+    case "pick-player": {
+      const id = Number(el.dataset.player);
+      picked.player = picked.player === id ? null : id;
+      applyPick();
+      break;
+    }
     case "open-link":
       openLink(document.getElementById("link").value);
       break;

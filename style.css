@@ -12,6 +12,8 @@
   --silver: #b3b8bf;
   --bronze: #cc844d;
   --chip: #ececf1;
+  --pick: rgba(232, 107, 51, 0.12);
+  --pick-solid: #fcebe3;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,6 +24,8 @@
     --muted: #9a9aa2;
     --line: #2e2e32;
     --chip: #2c2c30;
+    --pick: rgba(232, 107, 51, 0.22);
+    --pick-solid: #3a2820;
   }
 }
 
@@ -178,6 +182,28 @@ td.points { font-weight: 700; }
   table.standings td, table.standings th { padding-left: 4px; padding-right: 4px; }
   table.standings td { font-size: 14px; }
 }
+
+/* Шахматка: при 7–8 игроках шире экрана телефона — прокручивается внутри карточки, имя закреплено слева */
+.cross-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table.cross { border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; min-width: 100%; }
+table.cross th, table.cross td { padding: 8px 4px; text-align: center; white-space: nowrap; border-bottom: 1px solid var(--line); }
+table.cross thead th { font-size: 11px; font-weight: 600; color: var(--muted); }
+table.cross tbody tr:last-child th, table.cross tbody tr:last-child td { border-bottom: 0; }
+table.cross th.name { position: sticky; left: 0; z-index: 1; background: var(--card); text-align: left; padding-left: 12px; padding-right: 6px; font-weight: 600; }
+table.cross th.name .num { display: inline-block; min-width: 18px; color: var(--muted); font-weight: 400; font-size: 12px; }
+table.cross td.self { color: var(--muted); font-size: 10px; }
+table.cross td:last-child, table.cross th:last-child { padding-right: 12px; padding-left: 8px; }
+table.cross .win { font-weight: 700; }
+table.cross .loss { color: var(--muted); }
+table.cross .live { color: var(--live); font-weight: 600; }
+table.cross .wait { color: var(--muted); font-size: 12px; }
+
+/* Выбранный игрок: его строки и встречи подсвечены, остальные матчи приглушены */
+.pickable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.hl { background: var(--pick); }
+table.cross th.name.hl { background: var(--pick-solid); }
+.picking .match.row:not(.hl) { opacity: 0.35; }
+.match.row { transition: opacity 0.15s; }
 
 .tie + .tie { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
 .tie h3 { margin: 0 0 4px; font-size: 15px; }
