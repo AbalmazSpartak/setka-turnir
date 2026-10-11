@@ -352,3 +352,7 @@ button.small { padding: 6px 14px; font-size: 14px; }
 .case-actions a { color: var(--accent); text-decoration: none; font-weight: 500; }
 .badge.warn-badge { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
 .stat-row .info { line-height: 1.35; }
+
+.overall-note { margin-top: 8px; }
+.overall-note p { margin: 6px 0 0; }
+.overall-note .muted { color: var(--muted); font-size: 13px; }

@@ -255,6 +255,8 @@ class Ranker {
     this.circles = [];
     /** Последний (самый узкий) круг игрока: id → { ids, record } — партии и мячи только во встречах внутри него */
     this.circleOf = new Map();
+    /** Круги, где между собой всё поровну и места решил коэффициент за весь турнир */
+    this.overall = [];
   }
 
   name(id) {
@@ -339,10 +341,42 @@ class Ranker {
       }
       return order;
     }
-    lines.push(`${prefix}всё поровну — ${equal.join(", ")}. Места решает жребий`);
-    for (const id of ids) this.decided.set(id, "жребий: во встречах между собой всё поровну");
+    return this.breakByTournament(ids, lines, prefix, equal);
+  }
+
+  /**
+   * Во встречах между собой всё поровну — места по коэффициенту партий за весь турнир, затем мячей; совпало и это — жребий.
+   * Так решил пользователь (10.2026). Setka в таких случаях ставит по жребию, поэтому места могут с ней не совпасть
+   */
+  breakByTournament(ids, lines, prefix, equal) {
+    const all = records(new Set(this.players.keys()), this.games);
+    const criteria = [
+      { short: "партии за турнир", key: (id) => [all.get(id).setsWon, all.get(id).setsLost] },
+      { short: "мячи за турнир", key: (id) => [all.get(id).ballsWon, all.get(id).ballsLost] },
+    ];
     const lot = (id) => this.lotOrder.get(id) ?? Number.MAX_SAFE_INTEGER;
-    return [[...ids].sort((a, b) => lot(a) - lot(b))];
+    const order = [];
+    const used = [];
+    const settle = (group, level) => {
+      if (group.length === 1) return order.push(group);
+      if (level === criteria.length) {
+        for (const id of group) this.decided.set(id, "жребий: равно и между собой, и за весь турнир");
+        return order.push([...group].sort((a, b) => lot(a) - lot(b)));
+      }
+      const c = criteria[level];
+      const label = ratioLabel(group, c.key);
+      const buckets = split(group, c.key);
+      if (buckets.length > 1 || level === criteria.length - 1) {
+        used.push(`${c.short}: ${buckets.flat().map((id) => `${this.name(id)} ${label(id)}`).join(" · ")}`);
+      }
+      for (const id of group) this.decided.set(id, `между собой всё поровну — ${c.short}: ${label(id)}`);
+      for (const bucket of buckets) settle(bucket, level + 1);
+    };
+    settle(ids, 0);
+    const byLot = order.some((b) => b.length > 1);
+    lines.push(`${prefix}во встречах между собой всё поровну — ${equal.join(", ")}. Места по коэффициенту за весь турнир: ${used.join("; ")}${byLot ? ". Где и он равен — жребий" : ""}`);
+    this.overall.push({ ids: order.flat(), byLot });
+    return order;
   }
 
   /**
@@ -443,6 +477,7 @@ export function standings(t, { balls = "ratio", outcomes = new Map() } = {}) {
     decided: ranker.decided,
     circles: ranker.circles,
     circleOf: ranker.circleOf,
+    overall: ranker.overall,
     groupMatches,
     placementMatches,
     playedCount: games.length,

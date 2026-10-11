@@ -35,10 +35,10 @@ export const SITUATIONS = [
   {
     key: "setkaDiffers",
     title: "Setka поставила места не по правилам ITTF",
-    conclusion: "Почти всегда Setka считает строго по ITTF: за год совпало 11859 турниров из 11863. Здесь — одно из редких исключений; наш расчёт показывает места по правилам, а сноска под таблицей — как у Setka.",
+    conclusion: "Почти всегда места Setka совпадают с нашим подсчётом. Здесь — редкое исключение (чаще всего полное равенство во встречах между собой: у Setka жребий, у нас — коэффициент за весь турнир); наш расчёт показывает свои места, а сноска под таблицей — как у Setka.",
     detect: (t, s, setkaDiff) => setkaDiff.length > 0,
     details: (t, s, setkaDiff) =>
-      `у Setka: ${setkaDiff.map((d) => `${d.setkaPlace}. ${d.player.lastName}`).join(", ")}; по ITTF: ${
+      `у Setka: ${setkaDiff.map((d) => `${d.setkaPlace}. ${d.player.lastName}`).join(", ")}; наш подсчёт: ${
         [...setkaDiff].sort((a, b) => a.place - b.place).map((d) => `${d.place}. ${d.player.lastName}`).join(", ")}`,
   },
   {
@@ -93,10 +93,11 @@ export const SITUATIONS = [
   },
   {
     key: "lot",
-    title: "Полное равенство — места решил жребий",
-    conclusion: "Равны очки, партии и мячи во встречах между собой. Порядок определяет жребий Setka — наш подсчёт берёт его из итогов Setka.",
-    detect: (t, s) => s.rows.some((r) => r.byLot),
-    details: (t, s) => `жребий между: ${s.rows.filter((r) => r.byLot).sort((a, b) => a.place - b.place).map((r) => r.player.lastName).join(", ")}`,
+    title: "Полное равенство между собой — места по общему коэффициенту",
+    conclusion: "Равны очки, партии и мячи во встречах между собой. Setka в таких случаях ставит по жребию, а наш подсчёт — по коэффициенту партий за весь турнир, затем мячей; жребий — только если равно и это. Поэтому места с Setka могут не совпасть.",
+    detect: (t, s) => (s.overall?.length ?? 0) > 0 || s.rows.some((r) => r.byLot),
+    details: (t, s) => (s.overall ?? []).map(({ ids }) => ids.map((id) => s.rows.find((r) => r.player.id === id)?.player.lastName).join(" выше ")).join("; ")
+      || `жребий между: ${s.rows.filter((r) => r.byLot).sort((a, b) => a.place - b.place).map((r) => r.player.lastName).join(", ")}`,
   },
 ];
 
