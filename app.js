@@ -77,7 +77,7 @@ async function render() {
       app.innerHTML = loadingTournament();
       const t = (await loadDay(s.date)).find((x) => x.id === s.id);
       if (token !== renderToken) return;
-      app.innerHTML = t ? tournamentView(t) : home(s, { message: "Такого турнира в этот день нет." });
+      app.innerHTML = t ? tournamentView(t, s.date) : home(s, { message: "Такого турнира в этот день нет." });
       document.title = t ? `${tournamentTitle(t)} — Турнир` : "Турнир — места Setka Cup";
     } else if (s.date && (s.hall != null || s.period != null)) {
       app.innerHTML = home(s, { loading: true });
@@ -541,7 +541,7 @@ function outcomesOf(t) {
   return outcomes;
 }
 
-function tournamentView(t) {
+function tournamentView(t, date = null) {
   if (whatIf.id !== t.id) Object.assign(whatIf, { id: t.id, open: false, picks: new Map(), applied: false });
   if (picked.tournament !== t.id) Object.assign(picked, { tournament: t.id, player: null });
   const outcomes = outcomesOf(t);
@@ -557,6 +557,7 @@ function tournamentView(t) {
       <h2>${esc(tournamentTitle(t))}</h2>
       <div class="side end">${t.isTest ? "" : `<button class="ghost icon" data-action="refresh" aria-label="Обновить" title="Обновить">↻</button>`}</div>
     </div>
+    ${date ? `<p class="tournament-date">${esc(longDate(date))}</p>` : ""}
     ${t.isTest ? `
       <div class="card pad test-banner" style="margin-top:8px">
         <h3>🧪 Тестовые данные</h3>
@@ -621,6 +622,11 @@ fetch("precedents.json", { cache: "no-cache" })
   })
   .catch(() => {});
 
+/** «суббота, 11 октября 2026» — дата турнира под кнопкой «Назад» */
+const longDate = (date) => {
+  const text = new Date(`${date}T12:00:00`).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).replace(/\s*г\.$/, "");
+  return text[0].toUpperCase() + text.slice(1);
+};
 const shortDate = (date) => `${date.slice(8, 10)}.${date.slice(5, 7)}`;
 
 function casesNoun(n) {
@@ -818,27 +824,56 @@ function ratio(won, lost) {
   return `<div class="ratio">${text}</div>`;
 }
 
+/** Счёт и коэффициент внутри круга равных — цветом круга, под общими (видны с «Коэффициентами») */
+function circleRatio(won, lost) {
+  const text = lost ? (won / lost).toFixed(3).replace(".", ",") : won ? "∞" : "—";
+  return `<div class="ratio circle">${won}:${lost}<br>${text}</div>`;
+}
+
+/** Подписи кругов под таблицей: кто в круге и откуда цветные цифры */
+function circleLegend(s) {
+  if (!s.circles?.length) return "";
+  const row = (id) => s.rows.find((r) => r.player.id === id);
+  const byPlace = (ids) => [...ids].sort((a, b) => row(a).groupPlace - row(b).groupPlace);
+  const name = (id) => row(id)?.player.lastName ?? "";
+  const inner = (ids) => [...new Set(ids.map((id) => s.circleOf.get(id).ids))].filter((c) => c.length > 1 && c.length < ids.length);
+  return `
+    <div class="circle-legend">
+      ${s.circles.map((ids, i) => `
+        <div class="c${i % 4}"><span class="dot"></span>Круг ${i + 1}: ${esc(byPlace(ids).map(name).join(", "))}${inner(ids).map((c) => ` → затем между собой ${esc(byPlace(c).map(name).join(", "))}`).join("")}</div>`).join("")}
+      <div class="note">Цветные цифры под партиями и мячами — счёт и коэффициент только во встречах внутри круга (если круг сузился — внутри последнего).</div>
+    </div>`;
+}
+
 function table(s) {
   const rows = [...s.rows].sort((a, b) => a.groupPlace - b.groupPlace);
+  const circleIndex = new Map((s.circles ?? []).flatMap((ids, i) => ids.map((id) => [id, i])));
+  const inCircle = (id, key) => {
+    const c = s.circleOf?.get(id);
+    if (!c || (c.record.setsWon + c.record.setsLost === 0)) return "";
+    return key === "sets" ? circleRatio(c.record.setsWon, c.record.setsLost) : circleRatio(c.record.ballsWon, c.record.ballsLost);
+  };
+  const cls = (id) => (circleIndex.has(id) ? ` in-circle c${circleIndex.get(id) % 4}` : "");
   return `
     <table class="standings">
       <thead><tr><th></th><th class="player">Игрок</th><th>В–П</th><th>Партии</th><th>Мячи</th><th>Очки</th></tr></thead>
       <tbody>
         ${rows.map((r) => `
-          <tr class="pickable" data-action="pick-player" data-player="${r.player.id}" data-players="${r.player.id}">
+          <tr class="pickable${cls(r.player.id)}" data-action="pick-player" data-player="${r.player.id}" data-players="${r.player.id}">
             <td>${place(r.groupPlace)}</td>
             <td class="player"><div class="last">${esc(r.player.lastName)}</div><div class="first">${esc(r.player.firstName)}${r.byLot ? " · жребий" : ""}</div></td>
             <td>${r.record.wins}–${r.record.losses}</td>
-            <td>${r.record.setsWon}:${r.record.setsLost}${ratio(r.record.setsWon, r.record.setsLost)}</td>
-            <td class="balls">${r.record.ballsWon}:${r.record.ballsLost}${ratio(r.record.ballsWon, r.record.ballsLost)}</td>
+            <td>${r.record.setsWon}:${r.record.setsLost}${ratio(r.record.setsWon, r.record.setsLost)}${inCircle(r.player.id, "sets")}</td>
+            <td class="balls">${r.record.ballsWon}:${r.record.ballsLost}${ratio(r.record.ballsWon, r.record.ballsLost)}${inCircle(r.player.id, "balls")}</td>
             <td class="points">${r.record.points}</td>
           </tr>
           ${s.decided?.has(r.player.id) ? `
-            <tr class="decided-row" data-players="${r.player.id}">
+            <tr class="decided-row${cls(r.player.id)}" data-players="${r.player.id}">
               <td></td><td colspan="5">↳ ${esc(capitalize(s.decided.get(r.player.id)))}</td>
             </tr>` : ""}`).join("")}
       </tbody>
-    </table>`;
+    </table>
+    ${circleLegend(s)}`;
 }
 
 /**

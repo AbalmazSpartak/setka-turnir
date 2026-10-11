@@ -251,6 +251,10 @@ class Ranker {
     this.noMeeting = [];
     /** Что решило место игрока с равными очками: id → «партии между собой: 5:4 (1,250)» */
     this.decided = new Map();
+    /** Круги равных по очкам: игроки и номер круга (для цвета) */
+    this.circles = [];
+    /** Последний (самый узкий) круг игрока: id → { ids, record } — партии и мячи только во встречах внутри него */
+    this.circleOf = new Map();
   }
 
   name(id) {
@@ -274,6 +278,7 @@ class Ranker {
       const lines = [];
       const points = totals.get(bucket[0]).points;
       const title = `${bucket.map((id) => this.name(id)).join(", ")} — по ${points} ${pointsNoun(points)}`;
+      this.circles.push(bucket);
       order.push(...this.breakTie(bucket, lines, 0));
       this.ties.push({ title, lines });
     }
@@ -285,6 +290,7 @@ class Ranker {
     const subset = new Set(ids);
     const rec = records(subset, this.games);
     const prefix = depth === 0 ? "" : `Между ${this.list(ids)}: `;
+    for (const id of ids) this.circleOf.set(id, { ids, record: rec.get(id) });
 
     // Двое и одна встреча между ними — решает она. В двухкруговых турнирах встреч две, тогда — по общим правилам
     const between = this.games.filter((g) => !g.doubleLoss && subset.has(g.p1) && subset.has(g.p2));
@@ -435,6 +441,8 @@ export function standings(t, { balls = "ratio", outcomes = new Map() } = {}) {
     ties: ranker.ties,
     noMeeting: ranker.noMeeting,
     decided: ranker.decided,
+    circles: ranker.circles,
+    circleOf: ranker.circleOf,
     groupMatches,
     placementMatches,
     playedCount: games.length,

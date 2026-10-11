@@ -65,6 +65,7 @@ h1 { font-size: 34px; margin: 12px 4px 4px; }
 .topbar .side { width: 76px; display: flex; }
 button.icon { font-size: 24px; line-height: 1; padding: 4px 6px; }
 .topbar .side.end { justify-content: flex-end; }
+.tournament-date { margin: -6px 4px 8px; font-size: 14px; color: var(--muted); }
 
 .section-title {
   margin: 22px 4px 8px;
@@ -94,6 +95,15 @@ button.toggle[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .decided-row, .ratio-note { display: none; }
 .show-ratios .decided-row { display: table-row; }
 .show-ratios .ratio-note { display: block; }
+/* Круги равных по очкам — свой цвет у каждого; видны с «Коэффициентами» */
+.c0 { --circle: #2f7be0; } .c1 { --circle: #9b51e0; } .c2 { --circle: #23a050; } .c3 { --circle: #e0457b; }
+.ratio.circle { color: var(--circle); font-weight: 600; margin-top: 3px; line-height: 1.25; }
+.show-ratios tr.in-circle td:first-child { box-shadow: inset 4px 0 0 var(--circle); }
+.circle-legend { display: none; padding: 4px 14px 12px; font-size: 13px; }
+.show-ratios .circle-legend { display: block; }
+.circle-legend > div[class^="c"] { margin-top: 6px; }
+.circle-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--circle); margin-right: 6px; }
+.circle-legend .note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 table.standings tr.decided-row td { padding-top: 0; padding-bottom: 8px; text-align: left; white-space: normal; font-size: 12px; color: var(--muted); }
 
 .card {
