@@ -1,3 +1,8 @@
 name = "setka-turnir"
 main = "worker.js"
 compatibility_date = "2026-10-01"
+
+# Статистика посещений: SQL-запросы через Cloudflare API (analytics_engine/sql)
+[[analytics_engine_datasets]]
+binding = "VISITS"
+dataset = "setka_visits"
