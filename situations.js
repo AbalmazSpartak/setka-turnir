@@ -114,3 +114,14 @@ export function describeSituations(t, s, setkaDiff) {
 /** Ссылка на турнир на сайте Setka Cup: день, зал и время дня */
 export const setkaLink = (date, hall, period) =>
   `https://tabletennis.setkacup.com/ru/schedule?date=${date}&hall=${hall}&period=${period}`;
+
+/**
+ * Уровень турнира для «Тренировки»: normal — очки разные или двое равных, hard («Средний») — трое и больше равных,
+ * unfair («Сложный») — нестандартные случаи, unfairPlus — места Setka расходятся с правилами; null — не годится
+ */
+export function trainLevel(t, s, setkaDiff) {
+  if (!isFinished(t) || !t.setka.hasFinal || t.setka.places.size < 3 || s.rows.length < 3) return null;
+  if (setkaDiff.length) return "unfairPlus";
+  if (detectSituations(t, s, setkaDiff).length) return "unfair";
+  return s.circles.some((ids) => ids.length >= 3) ? "hard" : "normal";
+}

@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=28";
+import { API_URL } from "./config.js?v=29";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=28";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=28";
-import { toCSV } from "./precedents-csv.js?v=28";
+} from "./standings.js?v=29";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=29";
+import { toCSV } from "./precedents-csv.js?v=29";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=28";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=28";
+} from "./testmode.js?v=29";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=29";
 
 const app = document.getElementById("app");
 
@@ -137,13 +137,15 @@ function saveTrainScore(level, solved, hinted) {
 
 /** Уровень турнира или null — не годится (не закрыт, нет итогов Setka) */
 function trainKind(t) {
-  if (!isFinished(t) || !t.setka.hasFinal || t.setka.places.size < 3) return null;
+  if (!isFinished(t) || !t.setka.hasFinal) return null;
   const s = standings(t);
-  if (s.rows.length < 3) return null;
-  const diff = setkaDifference(t, s);
-  if (diff.length) return "unfairPlus";
-  if (detectSituations(t, s, diff).length) return "unfair";
-  return s.circles.some((ids) => ids.length >= 3) ? "hard" : "normal";
+  return trainLevel(t, s, setkaDifference(t, s));
+}
+
+/** « · 7 688 турниров» — сколько турниров уровня в базе за год */
+function trainCount(level) {
+  const n = precedents?.levels?.[level];
+  return n == null ? "" : ` · ${n.toLocaleString("ru-RU")} ${n % 10 === 1 && n % 100 !== 11 ? "турнир" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "турнира" : "турниров"}`;
 }
 
 const randomItem = (list) => list[Math.floor(Math.random() * list.length)];
@@ -244,6 +246,7 @@ function trainView(level) {
     <div class="train-levels">
       ${Object.entries(TRAIN_LEVELS).map(([key, x]) => {
         const sc = scores[key];
+        // Сколько турниров уровня в базе — из справочника, обновляется раз в неделю
         return `<button class="${key === level ? "" : "outline"} small" data-action="train-level" data-level="${key}">
           ${esc(x.title)}${sc ? ` <span class="train-score">${sc.solved}/${sc.total}</span>` : ""}</button>`;
       }).join("")}
@@ -259,7 +262,8 @@ function trainView(level) {
     return `${top}
       <div class="card pad">
         <p>Настоящий турнир Setka Cup без мест и очков. Посчитайте сами, расставьте игроков по местам и сверьте с официальным итогом Setka.</p>
-        ${Object.values(TRAIN_LEVELS).map((x) => `<p class="muted"><b>${esc(x.title)}</b>${x.about ? ` — ${esc(x.about)}` : ""}</p>`).join("")}
+        ${Object.entries(TRAIN_LEVELS).map(([key, x]) => `<p class="muted"><b>${esc(x.title)}</b>${trainCount(key)}${x.about ? ` — ${esc(x.about)}` : ""}</p>`).join("")}
+        ${precedents?.levels ? `<p class="muted">Турниров за год: с ${esc(shortDate(precedents.from))}.${esc(precedents.from.slice(2, 4))} по ${esc(shortDate(precedents.to))}.${esc(precedents.to.slice(2, 4))}.</p>` : ""}
         <p class="muted">Счёт «решено / всего» хранится на этом телефоне.</p>
       </div>
       ${footer()}`;

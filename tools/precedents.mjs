@@ -7,7 +7,7 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseTournaments, standings, isFinished, tournamentTitle, matchesSetka, setkaDifference } from "../standings.js";
-import { SITUATIONS, describeSituations } from "../situations.js";
+import { SITUATIONS, describeSituations, trainLevel } from "../situations.js";
 import { toCSV } from "../precedents-csv.js";
 
 const OUT = new URL("../precedents.json", import.meta.url).pathname;
@@ -37,13 +37,18 @@ const previous = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")) : { tou
 const tournaments = previous.tournaments;
 const scannedDays = new Set(previous.days);
 let scanned = previous.scanned ?? 0;
+// Сколько турниров каждого уровня «Тренировки» — дописывается по новым дням, как scanned
+const levels = previous.levels ?? { normal: 0, hard: 0, unfair: 0, unfairPlus: 0 };
 
 for (const [date, json] of await loadDays()) {
-  if (!scannedDays.has(date)) scanned += json.filter((t) => t.statusCode === "finished").length;
+  const isNewDay = !scannedDays.has(date);
+  if (isNewDay) scanned += json.filter((t) => t.statusCode === "finished").length;
   scannedDays.add(date);
   for (const t of parseTournaments(json)) {
     if (!isFinished(t)) continue;
     const s = standings(t);
+    const level = isNewDay ? trainLevel(t, s, setkaDifference(t, s)) : null;
+    if (level) levels[level] += 1;
     const details = describeSituations(t, s, setkaDifference(t, s));
     // Обычные турниры не храним — только те, где есть что показать
     if (!Object.keys(details).length) {
@@ -73,7 +78,7 @@ for (const situation of SITUATIONS) {
 }
 
 const days = [...scannedDays].sort();
-const data = { updated: new Date().toISOString().slice(0, 10), from: days[0], to: days.at(-1), days, scanned, situations: summary, tournaments };
+const data = { updated: new Date().toISOString().slice(0, 10), from: days[0], to: days.at(-1), days, scanned, levels, situations: summary, tournaments };
 writeFileSync(OUT, JSON.stringify(data));
 
 const csv = arg("--csv");
