@@ -1,13 +1,14 @@
-import { API_URL } from "./config.js?v=21";
+import { API_URL } from "./config.js?v=22";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=21";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=21";
-import { toCSV } from "./precedents-csv.js?v=21";
+} from "./standings.js?v=22";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=22";
+import { toCSV } from "./precedents-csv.js?v=22";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=21";
+} from "./testmode.js?v=22";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays } from "./pay.js?v=22";
 
 const app = document.getElementById("app");
 
@@ -36,7 +37,8 @@ const today = () => {
 function state() {
   const p = new URLSearchParams(location.search);
   const int = (name) => (p.has(name) ? Number.parseInt(p.get(name), 10) : null);
-  return { date: p.get("date"), hall: int("hall"), period: int("period"), id: int("t"), test: p.get("test"), d: p.get("d"), stats: p.get("stats"), q: p.get("q") ?? "", help: p.has("help") };
+  return { date: p.get("date"), hall: int("hall"), period: int("period"), id: int("t"), test: p.get("test"), d: p.get("d"), stats: p.get("stats"), q: p.get("q") ?? "", help: p.has("help"),
+    pay: p.has("pay"), from: p.get("from"), to: p.get("to") };
 }
 
 /** Сколько шагов назад внутри страницы — чтобы «Назад» не уводил с сайта */
@@ -68,6 +70,9 @@ async function render() {
     if (s.help) {
       app.innerHTML = helpView();
       document.title = "Справка — Турнир";
+    } else if (s.pay) {
+      await renderPay(s, token);
+      if (token !== renderToken) return;
     } else if (s.stats != null) {
       app.innerHTML = statsView(s);
       document.title = "Статистика случаев — Турнир";
@@ -98,6 +103,97 @@ async function render() {
     app.innerHTML = home({ ...s, date: s.date ?? today() }, { message: error.message });
   }
   bind();
+}
+
+// --- 💰 Зарплата игрока за период ---
+
+const money = (n) => `${n.toLocaleString("ru-RU")} ${PAY.currency}`;
+const dayMonth = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+const validIso = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+/** Период из адреса; без дат — последняя наступившая выплата */
+function payPeriod(s) {
+  if (validIso(s.from) && validIso(s.to) && s.from <= s.to) {
+    const p = periodFor(s.from);
+    const regular = p.from === s.from && p.to === s.to;
+    return { from: s.from, to: s.to, payout: regular ? p.payout : null };
+  }
+  return lastPayoutPeriod(today());
+}
+
+async function renderPay(s, token) {
+  const period = payPeriod(s);
+  const days = daysBetween(period.from, period.to).filter((d) => d <= today());
+  app.innerHTML = payView(period, null);
+  bind();
+  const loaded = await Promise.all(days.map(async (date) => ({ date, tournaments: await loadDay(date) })));
+  if (token !== renderToken) return;
+  app.innerHTML = payView(period, payroll(loaded));
+  document.title = "Зарплата — Турнир";
+}
+
+function payView(period, result) {
+  const current = periodFor(today());
+  const isCurrent = period.from === current.from && period.to === current.to;
+  const title = period.payout
+    ? `Выплата ${dayMonth(period.payout)}${isCurrent ? " (ещё идёт)" : ""}`
+    : "Свои даты";
+  const line = (label, count, rate, sum) => `
+    <div class="pay-line"><span>${esc(label)}</span><span class="muted">${count} × ${esc(money(rate))}</span><b>${esc(money(sum))}</b></div>`;
+  const entryLines = result ? [...result.byPeriod].map(([name, count]) => {
+    const rate = PAY.entry[name];
+    return rate == null
+      ? `<div class="pay-line"><span>${esc(name || "Другие")} — ставка не задана</span><span class="muted">${count}</span><b>0 ${PAY.currency}</b></div>`
+      : line(`Выход: ${name}`, count, rate, count * rate);
+  }).join("") : "";
+  return `
+    <div class="topbar">
+      <div class="side"><button class="ghost" data-action="back">‹ Назад</button></div>
+      <h2>💰 Зарплата</h2>
+      <div class="side end"></div>
+    </div>
+    <p class="tournament-date">${esc(PAY.playerName)}</p>
+    <div class="card pad pay-period">
+      <div class="pay-nav">
+        <button class="ghost icon" data-action="pay-prev" aria-label="Предыдущая выплата">‹</button>
+        <div class="pay-title">
+          <b>${esc(title)}</b>
+          <div class="muted">за ${esc(dayMonth(period.from))} — ${esc(dayMonth(period.to))}</div>
+        </div>
+        <button class="ghost icon" data-action="pay-next" aria-label="Следующая выплата"${period.payout && period.from >= current.from ? " disabled" : ""}>›</button>
+      </div>
+      <div class="pay-custom">
+        <input type="date" id="pay-from" value="${esc(period.from)}" aria-label="С">
+        <span>—</span>
+        <input type="date" id="pay-to" value="${esc(period.to)}" aria-label="По">
+        <button class="outline small" data-action="pay-custom">Посчитать</button>
+      </div>
+    </div>
+    ${result ? `
+      <div class="card pad pay-total">
+        <div class="pay-sum">${esc(money(result.total))}</div>
+        <div class="muted">${result.rows.length} ${result.rows.length === 1 ? "турнир" : result.rows.length < 5 && result.rows.length > 1 ? "турнира" : "турниров"} · побед ${result.wins + result.walkoverWins} · поражений ${result.losses}</div>
+        <div class="pay-lines">
+          ${entryLines}
+          ${line("Победы", result.wins, PAY.win, result.wins * PAY.win)}
+          ${result.walkoverWins ? line("Технические победы", result.walkoverWins, PAY.walkoverWin, result.walkoverWins * PAY.walkoverWin) : ""}
+        </div>
+        ${result.rows.some((r) => r.live) ? `<p class="note">Есть турнир, который ещё идёт, — сумма может вырасти.</p>` : ""}
+      </div>
+      <div class="section-title">Турниры</div>
+      <div class="card">
+        ${result.rows.length ? result.rows.map((r) => `
+          <a class="row pay-row" href="?date=${esc(r.date)}&t=${r.t.id}" data-action="open" data-date="${esc(r.date)}" data-id="${r.t.id}">
+            <div class="pay-row-main">
+              <div><b>${esc(tournamentTitle(r.t))}</b>${r.live ? ` <span class="badge live">идёт</span>` : ""}</div>
+              <div class="muted">${esc(dayMonth(r.date))} · побед ${r.wins}${r.walkoverWins ? ` + ${r.walkoverWins} тех.` : ""} · поражений ${r.losses}</div>
+            </div>
+            <b>${esc(money(r.total))}</b>
+          </a>`).join("") : `<div class="center row">В эти дни турниров не было</div>`}
+      </div>
+      <p class="note">Выход: вечер — ${esc(money(PAY.entry["Вечер"]))}, ночь — ${esc(money(PAY.entry["Ночь"]))}. Победа — ${esc(money(PAY.win))}, техническая — ${esc(money(PAY.walkoverWin))}. Выплаты примерно ${PAY.payoutDays.join(", ")} числа — за дни с прошлой выплаты; если выплата была в другой день, задайте даты вручную.</p>`
+    : `<div class="center"><span class="spinner"></span></div>`}
+    ${footer()}`;
 }
 
 // --- 📖 Справка: что умеет сайт, по разделам ---
@@ -318,6 +414,7 @@ function home(s, { tournaments, linkMatches, loading, message } = {}) {
   return `
     <div class="title-row">
       <h1>Турнир</h1>
+      <button class="outline small" data-action="pay-open" title="Зарплата за период">💰</button>
       <button class="outline small" data-action="stats-open" title="Нестандартные случаи за год">📊</button>
       <button class="outline small" data-action="test-open" title="Тестовый раздел: попробовать сломать логику подсчёта">🧪 Тест</button>
       <button class="outline small" data-action="help-open" title="Справка" aria-label="Справка">?</button>
@@ -1051,6 +1148,24 @@ async function onAction(event) {
       statsLimit += 50;
       render();
       break;
+    case "pay-open":
+      go({ pay: 1 });
+      break;
+    case "pay-prev":
+    case "pay-next": {
+      const p = payPeriod(state());
+      const next = el.dataset.action === "pay-prev" ? periodFor(addDays(p.from, -1)) : periodFor(addDays(p.to, 1));
+      go({ pay: 1, from: next.from, to: next.to }, { replace: true });
+      break;
+    }
+    case "pay-custom": {
+      const from = document.getElementById("pay-from").value;
+      const to = document.getElementById("pay-to").value;
+      if (!from || !to || from > to) break;
+      const limit = addDays(from, PAY.maxDays - 1);
+      go({ pay: 1, from, to: to > limit ? limit : to }, { replace: true });
+      break;
+    }
     case "help-open":
       go({ help: 1 });
       window.scrollTo({ top: 0 });

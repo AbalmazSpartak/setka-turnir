@@ -356,3 +356,19 @@ button.small { padding: 6px 14px; font-size: 14px; }
 .overall-note { margin-top: 8px; }
 .overall-note p { margin: 6px 0 0; }
 .overall-note .muted { color: var(--muted); font-size: 13px; }
+
+/* 💰 Зарплата */
+.muted { color: var(--muted); font-size: 13px; }
+.pay-nav { display: flex; align-items: center; gap: 8px; }
+.pay-title { flex: 1; text-align: center; }
+.pay-nav button:disabled { opacity: 0.3; }
+.pay-custom { display: flex; align-items: center; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.pay-custom input { flex: 1; min-width: 120px; }
+.pay-total { margin-top: 8px; text-align: center; }
+.pay-sum { font-size: 34px; font-weight: 700; margin: 4px 0; }
+.pay-lines { margin-top: 12px; text-align: left; border-top: 1px solid var(--line); }
+.pay-line { display: flex; gap: 8px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.pay-line span:first-child { flex: 1; }
+.pay-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; }
+.pay-row-main { flex: 1; min-width: 0; }
+.pay-row:last-child { border-bottom: 0; }
