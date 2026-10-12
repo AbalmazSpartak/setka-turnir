@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=27";
+import { API_URL } from "./config.js?v=28";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=27";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=27";
-import { toCSV } from "./precedents-csv.js?v=27";
+} from "./standings.js?v=28";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=28";
+import { toCSV } from "./precedents-csv.js?v=28";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=27";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=27";
+} from "./testmode.js?v=28";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=28";
 
 const app = document.getElementById("app");
 
@@ -338,7 +338,10 @@ function trainReveal(t, s) {
           <div class="tie"><h3>${esc(tie.title)}</h3>
             <ul>${tie.lines.map((line) => `<li>${esc(line[0].toUpperCase() + line.slice(1))}</li>`).join("")}</ul></div>`).join("")}
       </div>` : `<p class="note">Равных по очкам нет — места просто по очкам.</p>`}
-    <p class="note"><a class="accent-link" href="?date=${esc(train.date)}&t=${t.id}" data-action="open" data-date="${esc(train.date)}" data-id="${t.id}">Открыть турнир целиком ›</a></p>`;
+    <p class="note">
+      <a class="accent-link" href="${esc(setkaLink(train.date, t.locationId, t.dayPeriodToken))}" target="_blank" rel="noopener">Официальный результат на Setka Cup ↗</a>
+      · <a class="accent-link" href="?date=${esc(train.date)}&t=${t.id}" data-action="open" data-date="${esc(train.date)}" data-id="${t.id}">Наш расчёт целиком ›</a>
+    </p>`;
 }
 
 // --- 💰 Зарплата игрока за период ---

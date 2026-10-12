@@ -1,6 +1,6 @@
 // Зарплата игрока за период: выход на турнир (ставка по времени дня) + каждая победа.
 // Пока только для одного игрока; ставки — от него (10.2026)
-import { game, isFinished, isNotStarted, tournamentTitle } from "./standings.js?v=27";
+import { game, isFinished, isNotStarted, tournamentTitle } from "./standings.js?v=28";
 
 export const PAY = {
   playerId: 1997,
