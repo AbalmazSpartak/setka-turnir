@@ -1,16 +1,19 @@
-import { API_URL } from "./config.js?v=23";
+import { API_URL } from "./config.js?v=24";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=23";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=23";
-import { toCSV } from "./precedents-csv.js?v=23";
+} from "./standings.js?v=24";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=24";
+import { toCSV } from "./precedents-csv.js?v=24";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=23";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=23";
+} from "./testmode.js?v=24";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=24";
 
 const app = document.getElementById("app");
+
+// Установка как приложение (Chrome «Установить», iPhone «На экран Домой») — нужен service worker
+if ("serviceWorker" in navigator && location.hostname !== "localhost") navigator.serviceWorker.register("sw.js").catch(() => {});
 
 // --- Данные ---
 
