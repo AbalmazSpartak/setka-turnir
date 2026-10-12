@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=26";
+import { API_URL } from "./config.js?v=27";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=26";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=26";
-import { toCSV } from "./precedents-csv.js?v=26";
+} from "./standings.js?v=27";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=27";
+import { toCSV } from "./precedents-csv.js?v=27";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=26";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=26";
+} from "./testmode.js?v=27";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=27";
 
 const app = document.getElementById("app");
 
@@ -115,9 +115,9 @@ async function render() {
 
 const TRAIN_LEVELS = {
   normal: { title: "Обычный", about: "Очки разные или двое равных — решает личная встреча" },
-  hard: { title: "Сложный", about: "Трое и больше с равными очками: встречи между собой, партии, мячи" },
-  unfair: { title: "Нечестный", about: "Технические победы, снятия, «L : L», не было встречи, полное равенство" },
-  unfairPlus: { title: "Нечестный +", about: "Места Setka расходятся с правилами — угадайте, как поставила Setka" },
+  hard: { title: "Средний", about: "Трое и больше с равными очками: встречи между собой, партии, мячи" },
+  unfair: { title: "Сложный", about: "Технические победы, снятия, «L : L», не было встречи, полное равенство" },
+  unfairPlus: { title: "Нечестный +", about: "" },
 };
 const train = { level: null, t: null, date: null, order: [], checked: false, hint: false, ratios: false, revealed: false, counted: false, error: null };
 
@@ -259,7 +259,7 @@ function trainView(level) {
     return `${top}
       <div class="card pad">
         <p>Настоящий турнир Setka Cup без мест и очков. Посчитайте сами, расставьте игроков по местам и сверьте с официальным итогом Setka.</p>
-        ${Object.values(TRAIN_LEVELS).map((x) => `<p class="muted"><b>${esc(x.title)}</b> — ${esc(x.about)}</p>`).join("")}
+        ${Object.values(TRAIN_LEVELS).map((x) => `<p class="muted"><b>${esc(x.title)}</b>${x.about ? ` — ${esc(x.about)}` : ""}</p>`).join("")}
         <p class="muted">Счёт «решено / всего» хранится на этом телефоне.</p>
       </div>
       ${footer()}`;
@@ -276,7 +276,8 @@ function trainView(level) {
   const allRight = train.checked && players.every((p) => correct(p.id));
   const sc = scores[level];
   return `${top}
-    <p class="muted train-about">${esc(TRAIN_LEVELS[level].about)}${sc ? ` · решено ${sc.solved} из ${sc.total}${sc.hinted ? `, с подсказкой ${sc.hinted}` : ""}` : ""}</p>
+    ${[TRAIN_LEVELS[level].about, sc ? `решено ${sc.solved} из ${sc.total}${sc.hinted ? `, с подсказкой ${sc.hinted}` : ""}` : ""].some(Boolean)
+      ? `<p class="muted train-about">${esc([TRAIN_LEVELS[level].about, sc ? `решено ${sc.solved} из ${sc.total}${sc.hinted ? `, с подсказкой ${sc.hinted}` : ""}` : ""].filter(Boolean).join(" · "))}</p>` : ""}
     <div class="section-title with-action">
       <span>${train.revealed ? esc(`${tournamentTitle(t)} · ${shortDate(train.date)}`) : `Турнир · ${n} ${playersNoun(n)}`}</span>
       <button class="outline small" data-action="train-hint" ${train.hint ? "disabled" : ""}>${train.hint ? "Очки показаны" : "Подсказка: очки"}</button>
