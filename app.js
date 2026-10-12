@@ -414,7 +414,6 @@ function home(s, { tournaments, linkMatches, loading, message } = {}) {
   return `
     <div class="title-row">
       <h1>Турнир</h1>
-      <button class="outline small" data-action="pay-open" title="Зарплата за период">💰</button>
       <button class="outline small" data-action="stats-open" title="Нестандартные случаи за год">📊</button>
       <button class="outline small" data-action="test-open" title="Тестовый раздел: попробовать сломать логику подсчёта">🧪 Тест</button>
       <button class="outline small" data-action="help-open" title="Справка" aria-label="Справка">?</button>
