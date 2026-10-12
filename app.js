@@ -665,8 +665,17 @@ function outcomesOf(t) {
   const outcomes = new Map();
   if (whatIf.id !== t.id || !whatIf.applied) return outcomes;
   for (const [id, value] of whatIf.picks) {
-    const [side, won, lost] = value.split(":").map(Number);
-    outcomes.set(id, side === 1 ? { s1: won, s2: lost } : { s1: lost, s2: won });
+    if (value === "ll") {
+      outcomes.set(id, { doubleLoss: true });
+      continue;
+    }
+    // «1:w» / «2:w» — техническая победа первого / второго
+    const [side, won, lost] = value.split(":");
+    if (won === "w") {
+      outcomes.set(id, side === "1" ? { s1: 3, s2: 0, walkover: true } : { s1: 0, s2: 3, walkover: true });
+      continue;
+    }
+    outcomes.set(id, side === "1" ? { s1: Number(won), s2: Number(lost) } : { s1: Number(lost), s2: Number(won) });
   }
   return outcomes;
 }
@@ -857,9 +866,17 @@ function whatIfButton() {
 }
 
 function picker(t, pending) {
+  const players = new Map(pending.flatMap((m) => [m.player1, m.player2]).map((p) => [p.id, p]));
   return `
     <div class="card pad picker" style="margin-top:8px">
       <h3>Исходы несыгранных матчей</h3>
+      <label class="pick-row">
+        <span>Снялся с турнира<br><span class="hint">травма, неявка — во всех его матчах техническое поражение</span></span>
+        <select id="withdrawn">
+          <option value="">никто</option>
+          ${[...players.values()].map((p) => `<option value="${p.id}">${esc(p.lastName)}</option>`).join("")}
+        </select>
+      </label>
       ${pending.map((m) => {
         const current = whatIf.picks.get(m.id) ?? "";
         const opt = (value, label) => `<option value="${value}" ${current === value ? "selected" : ""}>${esc(label)}</option>`;
@@ -867,14 +884,17 @@ function picker(t, pending) {
         return `
           <label class="pick-row">
             <span>${esc(pair(m))}</span>
-            <select data-match="${m.id}">
-              ${opt("", "не учитывать")}
+            <select data-match="${m.id}" data-p1="${m.player1.id}" data-p2="${m.player2.id}">
+              ${opt("", "не сыгран — не учитывать")}
               ${opt("1:3:0", `${a} 3:0`)}${opt("1:3:1", `${a} 3:1`)}${opt("1:3:2", `${a} 3:2`)}
               ${opt("2:3:2", `${b} 3:2`)}${opt("2:3:1", `${b} 3:1`)}${opt("2:3:0", `${b} 3:0`)}
+              ${opt("1:w", `${a} — тех. победа (${b} не явился / снялся)`)}
+              ${opt("2:w", `${b} — тех. победа (${a} не явился / снялся)`)}
+              ${opt("ll", "L : L — поражение обоим")}
             </select>
           </label>`;
       }).join("")}
-      <p class="hint">Мячи этих матчей неизвестны и в расчёт не идут.</p>
+      <p class="hint">Мячи этих матчей неизвестны и в расчёт не идут. Техническая победа — 3:0 по партиям, +2 очка победителю и 0 проигравшему; «L : L» — обоим поражение и 0 очков, как у Setka.</p>
       <div class="actions">
         <button class="outline" data-action="whatif-close">Отмена</button>
         <button data-action="whatif-apply">Пересчитать</button>
@@ -885,7 +905,9 @@ function picker(t, pending) {
 function scenarioBanner(t, outcomes) {
   const chosen = t.matches.filter((m) => outcomes.has(m.id)).map((m) => {
     const o = outcomes.get(m.id);
+    if (o.doubleLoss) return `${pair(m)}: L : L — поражение обоим`;
     const winner = o.s1 > o.s2 ? m.player1.lastName : m.player2.lastName;
+    if (o.walkover) return `${pair(m)}: техническая победа ${winner}`;
     return `${pair(m)}: ${winner} ${Math.max(o.s1, o.s2)}:${Math.min(o.s1, o.s2)}`;
   });
   return `
@@ -1122,6 +1144,14 @@ function bind() {
     if (e.key === "Enter") {
       e.preventDefault();
       openLink(link.value);
+    }
+  });
+  // «Снялся с турнира»: во всех его несыгранных матчах — техническая победа соперника
+  const withdrawn = document.getElementById("withdrawn");
+  withdrawn?.addEventListener("change", () => {
+    for (const select of app.querySelectorAll("select[data-match]")) {
+      if (select.dataset.p1 === withdrawn.value) select.value = "2:w";
+      else if (select.dataset.p2 === withdrawn.value) select.value = "1:w";
     }
   });
   // Статистика: поиск по Enter или при уходе с поля

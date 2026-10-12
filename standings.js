@@ -419,7 +419,8 @@ class Ranker {
  * Таблица турнира: rows — игроки с местом в группе (groupPlace) и итоговым (place),
  * ties — объяснения равенств, groupMatches / placementMatches, playedCount.
  * balls: "ratio" — по правилам ITTF, как считает Setka (по умолчанию); "diff" — по разнице, для сравнения.
- * outcomes — исходы, выбранные для несыгранных матчей: Map id матча → { s1, s2 } (например 3:1);
+ * outcomes — исходы, выбранные для несыгранных матчей: Map id матча → { s1, s2 } (например 3:1),
+ * { s1: 3, s2: 0, walkover: true } — техническая победа, { doubleLoss: true } — «L : L»;
  * мячи таких матчей неизвестны и в зачёт не идут
  */
 export function standings(t, { balls = "ratio", outcomes = new Map() } = {}) {
@@ -431,7 +432,11 @@ export function standings(t, { balls = "ratio", outcomes = new Map() } = {}) {
   const gameOf = (m) => {
     const pick = outcomes.get(m.id);
     if (!pick || !m.player1 || !m.player2 || (m.winnerId != null) || isDoubleLoss(m)) return game(m);
-    const g = { p1: m.player1.id, p2: m.player2.id, s1: pick.s1, s2: pick.s2, b1: 0, b2: 0, walkover: false };
+    if (pick.doubleLoss) {
+      return { p1: m.player1.id, p2: m.player2.id, s1: 0, s2: 0, b1: 0, b2: 0, walkover: true, doubleLoss: true, winner: null, loser: null };
+    }
+    // Техническая победа — как у Setka «W : L»: 3:0 по партиям, проигравшему 0 очков
+    const g = { p1: m.player1.id, p2: m.player2.id, s1: pick.s1, s2: pick.s2, b1: 0, b2: 0, walkover: !!pick.walkover };
     g.winner = pick.s1 > pick.s2 ? g.p1 : g.p2;
     g.loser = pick.s1 > pick.s2 ? g.p2 : g.p1;
     return g;
