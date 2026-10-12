@@ -396,3 +396,6 @@ button.small { padding: 6px 14px; font-size: 14px; }
 .train-sets summary { cursor: pointer; font-weight: 600; }
 .train-sets h3 { font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
 .accent-link { color: var(--accent); text-decoration: none; font-weight: 500; }
+.train-tools { justify-content: flex-end; margin: 0 0 8px; }
+td.train-coef { font-size: 13px; color: var(--muted); }
+.train-ratio { font-size: 11px; color: var(--soon); font-weight: 600; }

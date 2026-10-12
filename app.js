@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=25";
+import { API_URL } from "./config.js?v=26";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=25";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=25";
-import { toCSV } from "./precedents-csv.js?v=25";
+} from "./standings.js?v=26";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=26";
+import { toCSV } from "./precedents-csv.js?v=26";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=25";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=25";
+} from "./testmode.js?v=26";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=26";
 
 const app = document.getElementById("app");
 
@@ -119,7 +119,7 @@ const TRAIN_LEVELS = {
   unfair: { title: "Нечестный", about: "Технические победы, снятия, «L : L», не было встречи, полное равенство" },
   unfairPlus: { title: "Нечестный +", about: "Места Setka расходятся с правилами — угадайте, как поставила Setka" },
 };
-const train = { level: null, t: null, date: null, order: [], checked: false, hint: false, revealed: false, counted: false, error: null };
+const train = { level: null, t: null, date: null, order: [], checked: false, hint: false, ratios: false, revealed: false, counted: false, error: null };
 
 function trainScores() {
   try { return JSON.parse(localStorage.getItem("trainScores") ?? "{}"); } catch { return {}; }
@@ -177,7 +177,7 @@ async function renderTrain(s, token) {
     return;
   }
   if (train.level !== level || !train.t) {
-    Object.assign(train, { level, t: null, date: null, order: [], checked: false, hint: false, revealed: false, counted: false, error: null });
+    Object.assign(train, { level, t: null, date: null, order: [], checked: false, hint: false, ratios: false, revealed: false, counted: false, error: null });
     app.innerHTML = trainView(level);
     bind();
     try {
@@ -217,14 +217,18 @@ function trainGrid(t, s, players) {
     } else { put(a, b, "не сост.", "wait"); put(b, a, "не сост.", "wait"); }
   }
   const points = new Map(s.rows.map((r) => [r.player.id, r.record.points]));
+  const records = new Map(s.rows.map((r) => [r.player.id, r.record]));
+  // «Коэффициенты»: партии и мячи за весь турнир, выиграно ÷ проиграно
+  const coef = (won, lost) => `${won}:${lost}<div class="train-ratio">${lost ? (won / lost).toFixed(3).replace(".", ",") : won ? "∞" : "—"}</div>`;
   return `
     <table class="cross">
-      <thead><tr><th class="name">Игрок</th>${players.map((p, i) => `<th>${i + 1}</th>`).join("")}${train.hint ? "<th>Очки</th>" : ""}</tr></thead>
+      <thead><tr><th class="name">Игрок</th>${players.map((p, i) => `<th>${i + 1}</th>`).join("")}${train.ratios ? "<th>Партии</th><th>Мячи</th>" : ""}${train.hint ? "<th>Очки</th>" : ""}</tr></thead>
       <tbody>
         ${players.map((p, i) => `
           <tr>
             <th class="name"><span class="num">${i + 1}</span>${esc(p.lastName)}</th>
             ${players.map((q) => (p.id === q.id ? `<td class="self">●</td>` : `<td>${cells.get(`${p.id}-${q.id}`) ?? ""}</td>`)).join("")}
+            ${train.ratios ? `<td class="train-coef">${coef(records.get(p.id).setsWon, records.get(p.id).setsLost)}</td><td class="train-coef">${coef(records.get(p.id).ballsWon, records.get(p.id).ballsLost)}</td>` : ""}
             ${train.hint ? `<td class="points">${points.get(p.id) ?? 0}</td>` : ""}
           </tr>`).join("")}
       </tbody>
@@ -277,6 +281,10 @@ function trainView(level) {
       <span>${train.revealed ? esc(`${tournamentTitle(t)} · ${shortDate(train.date)}`) : `Турнир · ${n} ${playersNoun(n)}`}</span>
       <button class="outline small" data-action="train-hint" ${train.hint ? "disabled" : ""}>${train.hint ? "Очки показаны" : "Подсказка: очки"}</button>
     </div>
+    ${level === "normal" ? `
+      <div class="actions train-tools">
+        <button class="outline small toggle" data-action="train-ratios" aria-pressed="${train.ratios}">Коэффициенты</button>
+      </div>` : ""}
     <div class="card cross-wrap">${trainGrid(t, s, players)}</div>
     <p class="note">Победа — 2 очка, поражение — 1, техническое поражение и «L : L» — 0.</p>
     <details class="card pad train-sets">
@@ -1460,6 +1468,10 @@ async function onAction(event) {
     }
     case "train-reset":
       train.order = [];
+      render();
+      break;
+    case "train-ratios":
+      train.ratios = !train.ratios;
       render();
       break;
     case "train-hint":
