@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=29";
+import { API_URL } from "./config.js?v=30";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=29";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=29";
-import { toCSV } from "./precedents-csv.js?v=29";
+} from "./standings.js?v=30";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=30";
+import { toCSV } from "./precedents-csv.js?v=30";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=29";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=29";
+} from "./testmode.js?v=30";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=30";
 
 const app = document.getElementById("app");
 
@@ -142,48 +142,67 @@ function trainKind(t) {
   return trainLevel(t, s, setkaDifference(t, s));
 }
 
-/** « · 7 688 турниров» — сколько турниров уровня в базе за год */
+/** Набор турниров для тренировки: по 100 на уровень (в «Нечестном +» — сколько есть), выбраны по всему году */
+let trainPool = null;
+const loadTrainPool = async () => {
+  if (!trainPool) {
+    const response = await fetch("train-pool.json?v=1");
+    if (!response.ok) throw new Error("Не удалось загрузить набор турниров — проверьте интернет.");
+    trainPool = await response.json();
+  }
+  return trainPool;
+};
+
+/** Какие турниры уровня уже решались — сначала даются нерешённые */
+function trainPlayed() {
+  try { return JSON.parse(localStorage.getItem("trainPlayed") ?? "{}"); } catch { return {}; }
+}
+
+function markTrainPlayed(level, id) {
+  const all = trainPlayed();
+  all[level] = [...new Set([...(all[level] ?? []), id])];
+  try { localStorage.setItem("trainPlayed", JSON.stringify(all)); } catch { /* приватный режим */ }
+}
+
+const tournamentsNoun = (n) => (n % 10 === 1 && n % 100 !== 11 ? "турнир" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "турнира" : "турниров");
+
+/** « · 100 турниров, пройдено 12» */
 function trainCount(level) {
-  const n = precedents?.levels?.[level];
-  return n == null ? "" : ` · ${n.toLocaleString("ru-RU")} ${n % 10 === 1 && n % 100 !== 11 ? "турнир" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "турнира" : "турниров"}`;
+  const n = trainPool?.[level]?.length;
+  if (!n) return "";
+  const done = (trainPlayed()[level] ?? []).length;
+  return ` · ${n} ${tournamentsNoun(n)}${done ? `, пройдено ${Math.min(done, n)}` : ""}`;
 }
 
 const randomItem = (list) => list[Math.floor(Math.random() * list.length)];
 
-/** Случайный подходящий турнир: «Нечестный» — из справочника нестандартных случаев, остальные — случайный день за год */
-async function pickTrainTournament(level) {
-  for (let attempt = 0; attempt < 8; attempt++) {
-    let date, id = null;
-    // «Нечестный +» — только расхождения с Setka, их за год единицы: без справочника не найти
-    const cases = !precedents ? [] : level === "unfair" ? Object.entries(precedents.tournaments)
-      : level === "unfairPlus" ? Object.entries(precedents.tournaments).filter(([, x]) => x.situations.includes("setkaDiffers")) : [];
-    if (level === "unfairPlus" && !cases.length) throw new Error("Справочник случаев ещё загружается — нажмите «Ещё раз».");
-    if (cases.length) {
-      const [caseId, x] = randomItem(cases);
-      [date, id] = [x.date, Number(caseId)];
-    } else {
-      date = addDays(today(), -2 - Math.floor(Math.random() * 360));
-    }
-    const day = await loadDay(date);
-    const fits = day.filter((t) => (id == null || t.id === id) && trainKind(t) === level);
-    if (fits.length) return { t: randomItem(fits), date };
-  }
-  throw new Error("Не нашлось подходящего турнира — попробуйте ещё раз.");
+/** Турнир из набора уровня: сначала те, что ещё не решались; все решены — любой */
+async function pickTrainTournament(level, exceptId = null) {
+  const pool = (await loadTrainPool())[level] ?? [];
+  const played = new Set(trainPlayed()[level] ?? []);
+  const fresh = pool.filter(([, id]) => !played.has(id) && id !== exceptId);
+  const [date, id] = randomItem(fresh.length ? fresh : pool.filter(([, x]) => x !== exceptId).length ? pool.filter(([, x]) => x !== exceptId) : pool);
+  const t = (await loadDay(date)).find((x) => x.id === id);
+  if (!t) throw new Error("Setka не отдала этот турнир — нажмите «Ещё раз».");
+  return { t, date };
 }
 
 async function renderTrain(s, token) {
   const level = TRAIN_LEVELS[s.train] ? s.train : null;
   if (!level) {
+    try { await loadTrainPool(); } catch { /* меню покажется и без чисел */ }
+    if (token !== renderToken) return;
     app.innerHTML = trainView(null);
     document.title = "Тренировка — Турнир";
     return;
   }
   if (train.level !== level || !train.t) {
+    const previousId = train.t?.id ?? null;
     Object.assign(train, { level, t: null, date: null, order: [], checked: false, hint: false, ratios: false, revealed: false, counted: false, error: null });
     app.innerHTML = trainView(level);
     bind();
     try {
-      const picked = await pickTrainTournament(level);
+      const picked = await pickTrainTournament(level, previousId);
       if (token !== renderToken) return;
       Object.assign(train, picked);
     } catch (error) {
@@ -263,7 +282,7 @@ function trainView(level) {
       <div class="card pad">
         <p>Настоящий турнир Setka Cup без мест и очков. Посчитайте сами, расставьте игроков по местам и сверьте с официальным итогом Setka.</p>
         ${Object.entries(TRAIN_LEVELS).map(([key, x]) => `<p class="muted"><b>${esc(x.title)}</b>${trainCount(key)}${x.about ? ` — ${esc(x.about)}` : ""}</p>`).join("")}
-        ${precedents?.levels ? `<p class="muted">Турниров за год: с ${esc(shortDate(precedents.from))}.${esc(precedents.from.slice(2, 4))} по ${esc(shortDate(precedents.to))}.${esc(precedents.to.slice(2, 4))}.</p>` : ""}
+        ${trainPool ? `<p class="muted">Турниры выбраны случайно по всему году: с ${esc(shortDate(trainPool.from))}.${esc(trainPool.from.slice(2, 4))} по ${esc(shortDate(trainPool.to))}.${esc(trainPool.to.slice(2, 4))}. Сначала даются те, что вы ещё не решали.</p>` : ""}
         <p class="muted">Счёт «решено / всего» хранится на этом телефоне.</p>
       </div>
       ${footer()}`;
@@ -282,6 +301,7 @@ function trainView(level) {
   return `${top}
     ${[TRAIN_LEVELS[level].about, sc ? `решено ${sc.solved} из ${sc.total}${sc.hinted ? `, с подсказкой ${sc.hinted}` : ""}` : ""].some(Boolean)
       ? `<p class="muted train-about">${esc([TRAIN_LEVELS[level].about, sc ? `решено ${sc.solved} из ${sc.total}${sc.hinted ? `, с подсказкой ${sc.hinted}` : ""}` : ""].filter(Boolean).join(" · "))}</p>` : ""}
+    ${trainPool?.[level] ? `<p class="muted train-about">Пройдено ${Math.min((trainPlayed()[level] ?? []).length, trainPool[level].length)} из ${trainPool[level].length}</p>` : ""}
     <div class="section-title with-action">
       <span>${train.revealed ? esc(`${tournamentTitle(t)} · ${shortDate(train.date)}`) : `Турнир · ${n} ${playersNoun(n)}`}</span>
       <button class="outline small" data-action="train-hint" ${train.hint ? "disabled" : ""}>${train.hint ? "Очки показаны" : "Подсказка: очки"}</button>
@@ -1491,6 +1511,7 @@ async function onAction(event) {
       if (!train.counted) {
         const ok = train.order.every((id, i) => setkaPlaces(train.t, id).includes(i + 1));
         saveTrainScore(train.level, ok, train.hint);
+        markTrainPlayed(train.level, train.t.id);
         train.counted = true;
       }
       render();
