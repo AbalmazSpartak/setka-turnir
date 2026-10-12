@@ -8,7 +8,7 @@ import { toCSV } from "./precedents-csv.js?v=22";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
 } from "./testmode.js?v=22";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays } from "./pay.js?v=22";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=22";
 
 const app = document.getElementById("app");
 
@@ -126,13 +126,44 @@ async function renderPay(s, token) {
   const days = daysBetween(period.from, period.to).filter((d) => d <= today());
   app.innerHTML = payView(period, null);
   bind();
-  const loaded = await Promise.all(days.map(async (date) => ({ date, tournaments: await loadDay(date) })));
+  const load = (list) => Promise.all(list.map(async (date) => ({ date, tournaments: await loadDay(date) })));
+  const last = lastPayout();
+  const unpaidDays = last ? daysBetween(last.unpaidFrom, today()) : [];
+  const [loaded, unpaid] = await Promise.all([load(days), load(unpaidDays)]);
   if (token !== renderToken) return;
-  app.innerHTML = payView(period, payroll(loaded));
+  app.innerHTML = payView(period, payroll(loaded), last && { last, result: payroll(unpaid) });
   document.title = "Зарплата — Турнир";
 }
 
-function payView(period, result) {
+/** «Ещё не оплачено» после последней записанной выплаты и список пришедших выплат со сверкой */
+function payoutsBlock(unpaid) {
+  if (!unpaid) return "";
+  const { last, result } = unpaid;
+  const diff = (p) => {
+    if (p.accrued == null) return "";
+    const d = Math.round((p.amount - p.accrued) * 100) / 100;
+    return `<span class="${d < -1 ? "pay-short" : "muted"}">${d >= 0 ? "+" : "−"}${Math.abs(d).toLocaleString("ru-RU")}</span>`;
+  };
+  return `
+    <div class="card pad pay-unpaid">
+      <h3>⏳ Ещё не оплачено</h3>
+      <div class="pay-sum">${esc(money(result.total))}</div>
+      <div class="muted">турниры с ${esc(dayMonth(last.unpaidFrom))} · ${result.rows.length} шт.${result.rows.some((r) => r.live) ? " · есть незакрытый у Setka" : ""}</div>
+      <div class="pay-lines">
+        ${result.rows.map((r) => `<div class="pay-line"><span>${esc(dayMonth(r.date))} · ${esc(tournamentTitle(r.t))}</span><b>${esc(money(r.total))}</b></div>`).join("")}
+      </div>
+    </div>
+    <details class="card pad pay-history">
+      <summary>Пришедшие выплаты · ${PAY.payouts.length}</summary>
+      <div class="pay-lines">
+        ${[...PAY.payouts].reverse().map((p) => `
+          <div class="pay-line"><span>${esc(dayMonth(p.date))}<span class="muted"> · по ${esc(dayMonth(p.upTo))}</span></span>${diff(p)}<b>${p.amount.toLocaleString("ru-RU", { minimumFractionDigits: 2 })}</b></div>`).join("")}
+      </div>
+      <p class="note">Справа от суммы — разница с начисленным по турнирам. Плюс в несколько гривен — курсовая разница, недостачи были бы красным.</p>
+    </details>`;
+}
+
+function payView(period, result, unpaid = null) {
   const current = periodFor(today());
   const isCurrent = period.from === current.from && period.to === current.to;
   const title = period.payout
@@ -169,7 +200,9 @@ function payView(period, result) {
         <button class="outline small" data-action="pay-custom">Посчитать</button>
       </div>
     </div>
+    ${payoutsBlock(unpaid)}
     ${result ? `
+      <div class="section-title">Выбранный период</div>
       <div class="card pad pay-total">
         <div class="pay-sum">${esc(money(result.total))}</div>
         <div class="muted">${result.rows.length} ${result.rows.length === 1 ? "турнир" : result.rows.length < 5 && result.rows.length > 1 ? "турнира" : "турниров"} · побед ${result.wins + result.walkoverWins} · поражений ${result.losses}</div>
