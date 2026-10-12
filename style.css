@@ -377,3 +377,22 @@ button.small { padding: 6px 14px; font-size: 14px; }
 .pay-history { margin-top: 8px; }
 .pay-history summary { cursor: pointer; font-weight: 600; }
 .pay-short { color: #e0453a; font-weight: 600; }
+
+/* 🎯 Тренировка */
+.train-levels { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 8px; }
+.train-levels button { flex: 1 1 40%; }
+.train-score { opacity: 0.75; font-weight: 400; }
+.train-about { margin: 0 4px 4px; }
+.train-player { display: flex; align-items: center; gap: 10px; width: 100%; background: none; border: 0; border-radius: 0; min-height: 0; box-shadow: none; border-bottom: 1px solid var(--line); color: var(--text); font: inherit; text-align: left; padding: 11px 14px; cursor: pointer; }
+.train-player:last-child { border-bottom: 0; }
+.train-player:disabled { cursor: default; opacity: 1; }
+.train-player .grow, .final-row .grow { flex: 1; }
+.train-place { width: 28px; height: 28px; border-radius: 50%; border: 1.5px dashed var(--line); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+.train-place.set { border: 0; background: var(--accent); color: #fff; }
+.train-ok { color: var(--live); font-weight: 700; }
+.train-bad { color: #e0453a; font-weight: 700; white-space: nowrap; }
+.train-win { margin-top: 8px; }
+.train-sets { margin-top: 8px; }
+.train-sets summary { cursor: pointer; font-weight: 600; }
+.train-sets h3 { font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+.accent-link { color: var(--accent); text-decoration: none; font-weight: 500; }

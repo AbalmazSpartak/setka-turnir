@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=24";
+import { API_URL } from "./config.js?v=25";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=24";
-import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=24";
-import { toCSV } from "./precedents-csv.js?v=24";
+} from "./standings.js?v=25";
+import { SITUATIONS, detectSituations, setkaLink } from "./situations.js?v=25";
+import { toCSV } from "./precedents-csv.js?v=25";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=24";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=24";
+} from "./testmode.js?v=25";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=25";
 
 const app = document.getElementById("app");
 
@@ -41,7 +41,7 @@ function state() {
   const p = new URLSearchParams(location.search);
   const int = (name) => (p.has(name) ? Number.parseInt(p.get(name), 10) : null);
   return { date: p.get("date"), hall: int("hall"), period: int("period"), id: int("t"), test: p.get("test"), d: p.get("d"), stats: p.get("stats"), q: p.get("q") ?? "", help: p.has("help"),
-    pay: p.has("pay"), from: p.get("from"), to: p.get("to") };
+    pay: p.has("pay"), from: p.get("from"), to: p.get("to"), train: p.get("train") };
 }
 
 /** Сколько шагов назад внутри страницы — чтобы «Назад» не уводил с сайта */
@@ -73,6 +73,9 @@ async function render() {
     if (s.help) {
       app.innerHTML = helpView();
       document.title = "Справка — Турнир";
+    } else if (s.train != null) {
+      await renderTrain(s, token);
+      if (token !== renderToken) return;
     } else if (s.pay) {
       await renderPay(s, token);
       if (token !== renderToken) return;
@@ -106,6 +109,227 @@ async function render() {
     app.innerHTML = home({ ...s, date: s.date ?? today() }, { message: error.message });
   }
   bind();
+}
+
+// --- 🎯 Тренировка: настоящий турнир Setka без мест — расставить самому, потом сверить с Setka ---
+
+const TRAIN_LEVELS = {
+  normal: { title: "Обычный", about: "Очки разные или двое равных — решает личная встреча" },
+  hard: { title: "Сложный", about: "Трое и больше с равными очками: встречи между собой, партии, мячи" },
+  unfair: { title: "Нечестный", about: "Технические победы, снятия, «L : L», не было встречи, полное равенство" },
+  unfairPlus: { title: "Нечестный +", about: "Места Setka расходятся с правилами — угадайте, как поставила Setka" },
+};
+const train = { level: null, t: null, date: null, order: [], checked: false, hint: false, revealed: false, counted: false, error: null };
+
+function trainScores() {
+  try { return JSON.parse(localStorage.getItem("trainScores") ?? "{}"); } catch { return {}; }
+}
+
+function saveTrainScore(level, solved, hinted) {
+  const all = trainScores();
+  const x = all[level] ?? { solved: 0, total: 0, hinted: 0 };
+  x.total += 1;
+  if (solved) x.solved += 1;
+  if (hinted) x.hinted += 1;
+  all[level] = x;
+  try { localStorage.setItem("trainScores", JSON.stringify(all)); } catch { /* приватный режим */ }
+}
+
+/** Уровень турнира или null — не годится (не закрыт, нет итогов Setka) */
+function trainKind(t) {
+  if (!isFinished(t) || !t.setka.hasFinal || t.setka.places.size < 3) return null;
+  const s = standings(t);
+  if (s.rows.length < 3) return null;
+  const diff = setkaDifference(t, s);
+  if (diff.length) return "unfairPlus";
+  if (detectSituations(t, s, diff).length) return "unfair";
+  return s.circles.some((ids) => ids.length >= 3) ? "hard" : "normal";
+}
+
+const randomItem = (list) => list[Math.floor(Math.random() * list.length)];
+
+/** Случайный подходящий турнир: «Нечестный» — из справочника нестандартных случаев, остальные — случайный день за год */
+async function pickTrainTournament(level) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    let date, id = null;
+    // «Нечестный +» — только расхождения с Setka, их за год единицы: без справочника не найти
+    const cases = !precedents ? [] : level === "unfair" ? Object.entries(precedents.tournaments)
+      : level === "unfairPlus" ? Object.entries(precedents.tournaments).filter(([, x]) => x.situations.includes("setkaDiffers")) : [];
+    if (level === "unfairPlus" && !cases.length) throw new Error("Справочник случаев ещё загружается — нажмите «Ещё раз».");
+    if (cases.length) {
+      const [caseId, x] = randomItem(cases);
+      [date, id] = [x.date, Number(caseId)];
+    } else {
+      date = addDays(today(), -2 - Math.floor(Math.random() * 360));
+    }
+    const day = await loadDay(date);
+    const fits = day.filter((t) => (id == null || t.id === id) && trainKind(t) === level);
+    if (fits.length) return { t: randomItem(fits), date };
+  }
+  throw new Error("Не нашлось подходящего турнира — попробуйте ещё раз.");
+}
+
+async function renderTrain(s, token) {
+  const level = TRAIN_LEVELS[s.train] ? s.train : null;
+  if (!level) {
+    app.innerHTML = trainView(null);
+    document.title = "Тренировка — Турнир";
+    return;
+  }
+  if (train.level !== level || !train.t) {
+    Object.assign(train, { level, t: null, date: null, order: [], checked: false, hint: false, revealed: false, counted: false, error: null });
+    app.innerHTML = trainView(level);
+    bind();
+    try {
+      const picked = await pickTrainTournament(level);
+      if (token !== renderToken) return;
+      Object.assign(train, picked);
+    } catch (error) {
+      if (token !== renderToken) return;
+      train.error = error.message;
+    }
+  }
+  app.innerHTML = trainView(level);
+  document.title = "Тренировка — Турнир";
+}
+
+/** Игроки в нейтральном порядке — как впервые встречаются в расписании, а не по местам */
+function trainPlayers(t) {
+  const seen = new Map();
+  for (const m of [...t.matches].sort((a, b) => a.position - b.position)) {
+    for (const p of [m.player1, m.player2]) if (p && !seen.has(p.id)) seen.set(p.id, p);
+  }
+  return [...seen.values()];
+}
+
+/** Шахматка без мест: в клетке счёт по партиям глазами игрока строки */
+function trainGrid(t, s, players) {
+  const cells = new Map();
+  for (const m of s.groupMatches) {
+    if (!m.player1 || !m.player2) continue;
+    const g = game(m), a = m.player1.id, b = m.player2.id;
+    const put = (x, y, text, cls) => cells.set(`${x}-${y}`, `<span class="${cls}">${esc(text)}</span>`);
+    if (g?.doubleLoss) { put(a, b, "L:L", "loss"); put(b, a, "L:L", "loss"); }
+    else if (g) {
+      const mark = g.walkover ? " тех." : "";
+      put(a, b, `${g.s1}:${g.s2}${mark}`, g.winner === a ? "win" : "loss");
+      put(b, a, `${g.s2}:${g.s1}${mark}`, g.winner === b ? "win" : "loss");
+    } else { put(a, b, "не сост.", "wait"); put(b, a, "не сост.", "wait"); }
+  }
+  const points = new Map(s.rows.map((r) => [r.player.id, r.record.points]));
+  return `
+    <table class="cross">
+      <thead><tr><th class="name">Игрок</th>${players.map((p, i) => `<th>${i + 1}</th>`).join("")}${train.hint ? "<th>Очки</th>" : ""}</tr></thead>
+      <tbody>
+        ${players.map((p, i) => `
+          <tr>
+            <th class="name"><span class="num">${i + 1}</span>${esc(p.lastName)}</th>
+            ${players.map((q) => (p.id === q.id ? `<td class="self">●</td>` : `<td>${cells.get(`${p.id}-${q.id}`) ?? ""}</td>`)).join("")}
+            ${train.hint ? `<td class="points">${points.get(p.id) ?? 0}</td>` : ""}
+          </tr>`).join("")}
+      </tbody>
+    </table>`;
+}
+
+/** Верное место по Setka: у неё бывает несколько вариантов поля — подходит любой */
+const setkaPlaces = (t, id) => [...new Set(t.setka.places.get(id) ?? [])];
+
+function trainView(level) {
+  const scores = trainScores();
+  const tabs = `
+    <div class="train-levels">
+      ${Object.entries(TRAIN_LEVELS).map(([key, x]) => {
+        const sc = scores[key];
+        return `<button class="${key === level ? "" : "outline"} small" data-action="train-level" data-level="${key}">
+          ${esc(x.title)}${sc ? ` <span class="train-score">${sc.solved}/${sc.total}</span>` : ""}</button>`;
+      }).join("")}
+    </div>`;
+  const top = `
+    <div class="topbar">
+      <div class="side"><button class="ghost" data-action="back">‹ Назад</button></div>
+      <h2>🎯 Тренировка</h2>
+      <div class="side end"></div>
+    </div>
+    ${tabs}`;
+  if (!level) {
+    return `${top}
+      <div class="card pad">
+        <p>Настоящий турнир Setka Cup без мест и очков. Посчитайте сами, расставьте игроков по местам и сверьте с официальным итогом Setka.</p>
+        ${Object.values(TRAIN_LEVELS).map((x) => `<p class="muted"><b>${esc(x.title)}</b> — ${esc(x.about)}</p>`).join("")}
+        <p class="muted">Счёт «решено / всего» хранится на этом телефоне.</p>
+      </div>
+      ${footer()}`;
+  }
+  if (train.error) return `${top}<p class="note error">${esc(train.error)}</p><div class="actions"><button data-action="train-next">Ещё раз</button></div>${footer()}`;
+  if (!train.t) return `${top}<div class="center"><span class="spinner"></span></div>`;
+
+  const t = train.t;
+  const s = standings(t);
+  const players = trainPlayers(t);
+  const n = players.length;
+  const placeOf = new Map(train.order.map((id, i) => [id, i + 1]));
+  const correct = (id) => setkaPlaces(t, id).includes(placeOf.get(id));
+  const allRight = train.checked && players.every((p) => correct(p.id));
+  const sc = scores[level];
+  return `${top}
+    <p class="muted train-about">${esc(TRAIN_LEVELS[level].about)}${sc ? ` · решено ${sc.solved} из ${sc.total}${sc.hinted ? `, с подсказкой ${sc.hinted}` : ""}` : ""}</p>
+    <div class="section-title with-action">
+      <span>${train.revealed ? esc(`${tournamentTitle(t)} · ${shortDate(train.date)}`) : `Турнир · ${n} ${playersNoun(n)}`}</span>
+      <button class="outline small" data-action="train-hint" ${train.hint ? "disabled" : ""}>${train.hint ? "Очки показаны" : "Подсказка: очки"}</button>
+    </div>
+    <div class="card cross-wrap">${trainGrid(t, s, players)}</div>
+    <p class="note">Победа — 2 очка, поражение — 1, техническое поражение и «L : L» — 0.</p>
+    <details class="card pad train-sets">
+      <summary>Счёт по партиям — для мячей</summary>
+      ${s.hasPlacementMatches ? `<h3>Финал и матч за 3-е место</h3>${s.placementMatches.map((m) => matchRow(m, true, new Map())).join("")}<h3>Группа</h3>` : ""}
+      ${s.groupMatches.map((m) => matchRow(m, true, new Map())).join("")}
+    </details>
+    <div class="section-title">Ваши места — нажимайте с 1-го</div>
+    <div class="card">
+      ${players.map((p) => {
+        const place = placeOf.get(p.id);
+        const mark = !train.checked ? "" : correct(p.id) ? `<span class="train-ok">✓</span>` : `<span class="train-bad">✗ ${setkaPlaces(t, p.id).join(" или ")}</span>`;
+        return `<button class="train-player row" data-action="train-pick" data-player="${p.id}" ${train.checked ? "disabled" : ""}>
+          <span class="train-place ${place ? "set" : ""}">${place ?? ""}</span><span class="grow">${esc(fullName(p))}</span>${mark}</button>`;
+      }).join("")}
+    </div>
+    ${train.checked ? `
+      <div class="card pad ${allRight ? "train-win" : "warn"}" style="margin-top:8px">
+        <h3>${allRight ? "✅ Верно! Места совпали с Setka" : `❌ Ошибок: ${players.filter((p) => !correct(p.id)).length}`}</h3>
+        ${allRight ? "" : `<p class="muted">Справа у неверных — место по итогам Setka.</p>`}
+      </div>` : ""}
+    <div class="actions">
+      ${train.checked ? `
+        <button class="outline" data-action="train-reveal">${train.revealed ? "Скрыть результат" : "Результат Setka"}</button>
+        <button data-action="train-next">Следующий турнир</button>` : `
+        <button class="outline" data-action="train-reset" ${train.order.length ? "" : "disabled"}>Сбросить</button>
+        <button data-action="train-check" ${train.order.length === n ? "" : "disabled"}>Проверить</button>`}
+    </div>
+    ${train.checked && !train.revealed ? `<p class="note"><a class="accent-link" href="#" data-action="train-reveal">Результат Setka</a> — официальные места и разбор, почему так.</p>` : ""}
+    ${train.revealed ? trainReveal(t, s) : ""}
+    ${footer()}`;
+}
+
+/** Официальные места Setka, наш расчёт и разбор равенств */
+function trainReveal(t, s) {
+  const official = [...s.rows].sort((a, b) => Math.min(...setkaPlaces(t, a.player.id), 99) - Math.min(...setkaPlaces(t, b.player.id), 99));
+  const differs = s.rows.some((r) => !setkaPlaces(t, r.player.id).includes(r.place));
+  return `
+    <div class="section-title">Итог Setka</div>
+    <div class="card">
+      ${official.map((r) => `
+        <div class="final-row row">${place(Math.min(...setkaPlaces(t, r.player.id)))}<span class="grow">${esc(fullName(r.player))}</span>
+          <span class="muted">${r.record.points} оч.${differs && !setkaPlaces(t, r.player.id).includes(r.place) ? ` · у нас ${r.place}` : ""}</span></div>`).join("")}
+    </div>
+    ${differs ? `<p class="note footnote">Здесь места Setka расходятся с подсчётом по правилам («у нас» — как по правилам). Засчитывается вариант Setka.</p>` : ""}
+    ${s.ties.length ? `
+      <div class="section-title">Почему так</div>
+      <div class="card pad">
+        ${s.ties.map((tie) => `
+          <div class="tie"><h3>${esc(tie.title)}</h3>
+            <ul>${tie.lines.map((line) => `<li>${esc(line[0].toUpperCase() + line.slice(1))}</li>`).join("")}</ul></div>`).join("")}
+      </div>` : `<p class="note">Равных по очкам нет — места просто по очкам.</p>`}
+    <p class="note"><a class="accent-link" href="?date=${esc(train.date)}&t=${t.id}" data-action="open" data-date="${esc(train.date)}" data-id="${t.id}">Открыть турнир целиком ›</a></p>`;
 }
 
 // --- 💰 Зарплата игрока за период ---
@@ -450,6 +674,7 @@ function home(s, { tournaments, linkMatches, loading, message } = {}) {
   return `
     <div class="title-row">
       <h1>Турнир</h1>
+      <button class="outline small" data-action="train-open" title="Тренировка: расставьте места сами">🎯</button>
       <button class="outline small" data-action="stats-open" title="Нестандартные случаи за год">📊</button>
       <button class="outline small" data-action="test-open" title="Тестовый раздел: попробовать сломать логику подсчёта">🧪 Тест</button>
       <button class="outline small" data-action="help-open" title="Справка" aria-label="Справка">?</button>
@@ -1211,6 +1436,48 @@ async function onAction(event) {
       break;
     case "stats-more":
       statsLimit += 50;
+      render();
+      break;
+    case "train-open":
+      go({ train: "menu" });
+      break;
+    case "train-level":
+      train.level = null;
+      go({ train: el.dataset.level }, { replace: true });
+      break;
+    case "train-next":
+      train.level = null;
+      render();
+      window.scrollTo({ top: 0 });
+      break;
+    case "train-pick": {
+      const id = Number(el.dataset.player);
+      const at = train.order.indexOf(id);
+      if (at === -1) train.order.push(id);
+      else train.order.splice(at, 1);
+      render();
+      break;
+    }
+    case "train-reset":
+      train.order = [];
+      render();
+      break;
+    case "train-hint":
+      train.hint = true;
+      render();
+      break;
+    case "train-check": {
+      train.checked = true;
+      if (!train.counted) {
+        const ok = train.order.every((id, i) => setkaPlaces(train.t, id).includes(i + 1));
+        saveTrainScore(train.level, ok, train.hint);
+        train.counted = true;
+      }
+      render();
+      break;
+    }
+    case "train-reveal":
+      train.revealed = !train.revealed;
       render();
       break;
     case "pay-open":
