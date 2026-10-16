@@ -422,3 +422,7 @@ td.train-coef { font-size: 13px; color: var(--muted); }
 details.precedents { margin-top: 18px; }
 details.precedents summary { cursor: pointer; font-weight: 600; }
 details.precedents[open] summary { margin-bottom: 8px; }
+/* «Результат не окончательный» и «Круг между…» — под матчами группы */
+.after-matches { display: grid; gap: 12px; margin-top: 12px; }
+.after-matches:empty { display: none; }
+.after-matches > .card { margin-top: 0 !important; }

@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=33";
+import { API_URL } from "./config.js?v=34";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=33";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=33";
-import { toCSV } from "./precedents-csv.js?v=33";
+} from "./standings.js?v=34";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=34";
+import { toCSV } from "./precedents-csv.js?v=34";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=33";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=33";
+} from "./testmode.js?v=34";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=34";
 
 const app = document.getElementById("app");
 
@@ -970,9 +970,8 @@ function tournamentView(t, date = null) {
       </div>` : ""}
     ${notStarted ? notStartedView(s) : `
       ${whatIf.applied ? scenarioBanner(t, outcomes) : `
-        ${!closed && unfinished ? provisional(s, pending.length > 0) : ""}
         ${closed ? notHeldBlock(t, pending.length > 0) : ""}`}
-      ${whatIf.open ? picker(t, pending) : ""}
+      ${whatIf.open && (whatIf.applied || closed) ? picker(t, pending) : ""}
       ${s.hasPlacementMatches && (placementResolved || closed) ? `
         <div class="section-title">Итоговые места</div>
         <div class="card">
@@ -980,7 +979,6 @@ function tournamentView(t, date = null) {
             <div class="final-row row">${place(r.place)}<span>${esc(fullName(r.player))}</span></div>`).join("")}
         </div>
         ${notHeld(t, s)}` : ""}
-      ${overallNote(s)}
       <div class="section-title with-action">
         <span>${whatIf.applied ? "Таблица с выбранными исходами"
           : s.isGroupComplete || closed ? (s.hasPlacementMatches ? "Группа" : "Таблица") : "Таблица лидеров сейчас"}</span>
@@ -1008,6 +1006,10 @@ function tournamentView(t, date = null) {
       <div class="card">${s.placementMatches.map((m) => matchRow(m, closed, outcomes)).join("")}</div>` : ""}
     <div class="section-title">Матчи группы</div>
     <div class="card">${s.groupMatches.map((m) => matchRow(m, closed, outcomes)).join("")}</div>
+    ${notStarted ? "" : `<div class="after-matches">
+      ${!whatIf.applied && !closed && unfinished ? provisional(s, pending.length > 0) : ""}
+      ${whatIf.open && !whatIf.applied && !closed ? picker(t, pending) : ""}
+      ${overallNote(s)}</div>`}
     <div class="actions" style="justify-content:center;margin-top:18px">
       <button class="outline" data-action="share">Поделиться ссылкой</button>
     </div>
