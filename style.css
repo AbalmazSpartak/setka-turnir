@@ -399,3 +399,18 @@ button.small { padding: 6px 14px; font-size: 14px; }
 .train-tools { justify-content: flex-end; margin: 0 0 8px; }
 td.train-coef { font-size: 13px; color: var(--muted); }
 .train-ratio { font-size: 11px; color: var(--soon); font-weight: 600; }
+
+/* Список матчей: слева игрок — красная точка, справа — синяя */
+.match .line > .p:first-child::before,
+.match .line > .p.right::after {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+}
+.match .line > .p:first-child::before { background: #e5484d; margin-right: 6px; }
+.match .line > .p.right::after { background: #3e8ed0; margin-left: 6px; }
