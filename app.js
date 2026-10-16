@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=31";
+import { API_URL } from "./config.js?v=32";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=31";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=31";
-import { toCSV } from "./precedents-csv.js?v=31";
+} from "./standings.js?v=32";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=32";
+import { toCSV } from "./precedents-csv.js?v=32";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=31";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=31";
+} from "./testmode.js?v=32";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=32";
 
 const app = document.getElementById("app");
 
@@ -229,7 +229,8 @@ function trainGrid(t, s, players) {
   for (const m of s.groupMatches) {
     if (!m.player1 || !m.player2) continue;
     const g = game(m), a = m.player1.id, b = m.player2.id;
-    const put = (x, y, text, cls) => cells.set(`${x}-${y}`, `<span class="${cls}">${esc(text)}</span>`);
+    // side: игрок строки был в матче слева (красный) или справа (синий) — как точки в списке матчей
+    const put = (x, y, text, cls) => cells.set(`${x}-${y}`, `<span class="side-dot ${x === a ? "red" : "blue"}"></span><span class="${cls}">${esc(text)}</span>`);
     if (g?.doubleLoss) { put(a, b, "L:L", "loss"); put(b, a, "L:L", "loss"); }
     else if (g) {
       const mark = g.walkover ? " тех." : "";
@@ -1325,26 +1326,26 @@ function crossTable(s, closed, outcomes) {
     const pick = outcomes.get(m.id);
     const g = game(m);
     if (pick) {
-      add(a, b, { text: `${pick.s1}:${pick.s2}*`, cls: pick.s1 > pick.s2 ? "win" : "loss" });
-      add(b, a, { text: `${pick.s2}:${pick.s1}*`, cls: pick.s2 > pick.s1 ? "win" : "loss" });
+      add(a, b, { side: "red", text: `${pick.s1}:${pick.s2}*`, cls: pick.s1 > pick.s2 ? "win" : "loss" });
+      add(b, a, { side: "blue", text: `${pick.s2}:${pick.s1}*`, cls: pick.s2 > pick.s1 ? "win" : "loss" });
     } else if (g?.doubleLoss) {
-      add(a, b, { text: "L:L", cls: "loss" });
-      add(b, a, { text: "L:L", cls: "loss" });
+      add(a, b, { side: "red", text: "L:L", cls: "loss" });
+      add(b, a, { side: "blue", text: "L:L", cls: "loss" });
     } else if (g) {
       const mark = g.walkover ? " тех." : "";
-      add(a, b, { text: `${g.s1}:${g.s2}${mark}`, cls: g.winner === a ? "win" : "loss" });
-      add(b, a, { text: `${g.s2}:${g.s1}${mark}`, cls: g.winner === b ? "win" : "loss" });
+      add(a, b, { side: "red", text: `${g.s1}:${g.s2}${mark}`, cls: g.winner === a ? "win" : "loss" });
+      add(b, a, { side: "blue", text: `${g.s2}:${g.s1}${mark}`, cls: g.winner === b ? "win" : "loss" });
     } else {
       const live = !closed && isLive(m);
       const text = live ? "идёт" : closed ? "не сост." : "";
-      add(a, b, { text, cls: live ? "live" : "wait" });
-      add(b, a, { text, cls: live ? "live" : "wait" });
+      add(a, b, { side: "red", text, cls: live ? "live" : "wait" });
+      add(b, a, { side: "blue", text, cls: live ? "live" : "wait" });
     }
   }
   const cell = (row, col) => {
     if (row === col) return `<td class="self" data-players="${row} ${col}">●</td>`;
     const list = cells.get(`${row}-${col}`) ?? [];
-    return `<td data-players="${row} ${col}">${list.map((c) => `<span class="${c.cls}">${esc(c.text)}</span>`).join(" / ")}</td>`;
+    return `<td data-players="${row} ${col}">${list.map((c) => `<span class="side-dot ${c.side}"></span><span class="${c.cls}">${esc(c.text)}</span>`).join(" / ")}</td>`;
   };
   return `
     <table class="cross">

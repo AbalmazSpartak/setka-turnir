@@ -414,3 +414,7 @@ td.train-coef { font-size: 13px; color: var(--muted); }
 }
 .match .line > .p:first-child::before { background: #e5484d; margin-right: 6px; }
 .match .line > .p.right::after { background: #3e8ed0; margin-left: 6px; }
+/* Шахматка: точка — с какой стороны в матче был игрок строки */
+.side-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 3px; vertical-align: middle; position: relative; top: -1px; }
+.side-dot.red { background: #e5484d; }
+.side-dot.blue { background: #3e8ed0; }
