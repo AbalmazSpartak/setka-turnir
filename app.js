@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=32";
+import { API_URL } from "./config.js?v=33";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=32";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=32";
-import { toCSV } from "./precedents-csv.js?v=32";
+} from "./standings.js?v=33";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=33";
+import { toCSV } from "./precedents-csv.js?v=33";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=32";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=32";
+} from "./testmode.js?v=33";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=33";
 
 const app = document.getElementById("app");
 
@@ -1066,10 +1066,14 @@ function similarCases(t, s) {
           </div>` : stats.total ? `<div class="hint">Этот турнир — единственный известный такой случай.</div>` : ""}
       </div>`;
   });
+  // Свёрнуто по умолчанию; раскрытие запоминаем, чтобы обновление страницы его не сбрасывало
   return `
-    <div class="section-title">📚 Похожие случаи</div>
-    <div class="card pad">${items.join("")}</div>`;
+    <details class="card pad precedents" ${precedentsOpen ? "open" : ""}>
+      <summary>📚 Похожие случаи <span class="muted">(${items.length})</span></summary>
+      ${items.join("")}
+    </details>`;
 }
+let precedentsOpen = false;
 
 /** Сноска, если официальные места Setka не совпали с расчётом по правилам ITTF (редкие исключения) */
 function setkaNote(t, s, outcomes) {
@@ -1400,6 +1404,7 @@ function footer() {
 
 function bind() {
   app.querySelectorAll("[data-action]").forEach((el) => el.addEventListener("click", onAction));
+  app.querySelector("details.precedents")?.addEventListener("toggle", (e) => { precedentsOpen = e.target.open; });
   applyPick();
   app.classList.toggle("show-ratios", showRatios);
   const day = document.getElementById("day");
