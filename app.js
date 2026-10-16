@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=35";
+import { API_URL } from "./config.js?v=36";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=35";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=35";
-import { toCSV } from "./precedents-csv.js?v=35";
+} from "./standings.js?v=36";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=36";
+import { toCSV } from "./precedents-csv.js?v=36";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=35";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=35";
+} from "./testmode.js?v=36";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=36";
 
 const app = document.getElementById("app");
 
@@ -972,10 +972,6 @@ function tournamentView(t, date = null) {
       ${whatIf.applied ? scenarioBanner(t, outcomes) : `
         ${closed ? notHeldBlock(t, pending.length > 0) : ""}`}
       ${whatIf.open && (whatIf.applied || closed) ? picker(t, pending) : ""}
-      <div class="section-title">Результаты встреч</div>
-      <div class="card cross-wrap">${crossTable(s, closed, outcomes)}</div>
-      <p class="note">Нажмите на игрока — его встречи подсветятся здесь и в списке матчей. Нажмите ещё раз, чтобы снять.</p>
-      <p class="note">Победа — 2 очка, поражение — 1, техническое поражение — 0. При равенстве мячи сравниваются по соотношению (выиграно ÷ проиграно) — по правилам ITTF, как у Setka.</p>
       ${s.hasPlacementMatches && (placementResolved || closed) ? `
         <div class="section-title">Итоговые места</div>
         <div class="card">
@@ -990,6 +986,10 @@ function tournamentView(t, date = null) {
       </div>
       <div class="card">${table(s)}</div>
       <p class="note ratio-note">Под счётом — коэффициенты за весь турнир. Места при равных очках решают не они, а встречи между этими игроками — что именно решило, написано под игроком (↳) и подробнее в «Почему так».</p>
+      <div class="section-title">Результаты встреч</div>
+      <div class="card cross-wrap">${crossTable(s, closed, outcomes)}</div>
+      <p class="note">Нажмите на игрока — его встречи подсветятся здесь и в списке матчей. Нажмите ещё раз, чтобы снять.</p>
+      <p class="note">Победа — 2 очка, поражение — 1, техническое поражение — 0. При равенстве мячи сравниваются по соотношению (выиграно ÷ проиграно) — по правилам ITTF, как у Setka.</p>
       ${setkaNote(t, s, outcomes)}
       ${s.ties.length ? `
         <div class="section-title">Почему так</div>
