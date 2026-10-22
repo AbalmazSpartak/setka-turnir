@@ -3,7 +3,7 @@
 //   node tools/precedents.mjs --fetch 14                         — скачать последние 14 дней у Setka
 //   node tools/precedents.mjs --csv <файл.csv>                    — дополнительно выгрузить базу в CSV
 // Новые турниры дописываются к уже собранным; по каждому случаю отмечено, совпал ли наш подсчёт с итогом Setka.
-// Раз в неделю запускается сам — .github/workflows/precedents.yml
+// Сам больше не запускается: еженедельное обновление выключено 2026-10-22
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseTournaments, standings, isFinished, tournamentTitle, matchesSetka, setkaDifference } from "../standings.js";

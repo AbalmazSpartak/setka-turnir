@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=36";
+import { API_URL } from "./config.js?v=37";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=36";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=36";
-import { toCSV } from "./precedents-csv.js?v=36";
+} from "./standings.js?v=37";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=37";
+import { toCSV } from "./precedents-csv.js?v=37";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=36";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=36";
+} from "./testmode.js?v=37";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=37";
 
 const app = document.getElementById("app");
 
@@ -266,7 +266,7 @@ function trainView(level) {
     <div class="train-levels">
       ${Object.entries(TRAIN_LEVELS).map(([key, x]) => {
         const sc = scores[key];
-        // Сколько турниров уровня в базе — из справочника, обновляется раз в неделю
+        // Сколько турниров уровня в базе — из справочника
         return `<button class="${key === level ? "" : "outline"} small" data-action="train-level" data-level="${key}">
           ${esc(x.title)}${sc ? ` <span class="train-score">${sc.solved}/${sc.total}</span>` : ""}</button>`;
       }).join("")}
@@ -573,7 +573,7 @@ function helpView() {
         <li><b>Матч прерван</b> — техническая победа, мячи сыгранных партий тоже идут в зачёт.</li>
       </ul>
       <h3>Похожие случаи</h3>
-      <p>Если в турнире есть такая ситуация, внизу страницы появится блок «Похожие случаи»: как Setka считала её раньше, сколько раз это встречалось и ссылки на такие турниры. Справочник обновляется сам раз в неделю.</p>`)}
+      <p>Если в турнире есть такая ситуация, внизу страницы появится блок «Похожие случаи»: как Setka считала её раньше, сколько раз это встречалось и ссылки на такие турниры.</p>`)}
 
     ${section("📊 Статистика", `
       <p>Все нестандартные турниры Setka за последний год: неявки, снятия, «L : L», прерванные матчи, несостоявшиеся финалы, жребий и расхождения с Setka.</p>
@@ -788,8 +788,7 @@ function statsView(s) {
     <div class="card pad stats-head">
       <div class="stats-big">${all.length}<span>нестандартных турниров</span></div>
       <p>За ${period()} просмотрено ${precedents.scanned?.toLocaleString("ru") ?? "—"} закрытых турниров Setka Cup.
-        Места, посчитанные по правилам ITTF, совпали с официальными в ${confirmed} из ${checked.length} нестандартных турниров.
-        Обновляется само каждый понедельник.</p>
+        Места, посчитанные по правилам ITTF, совпали с официальными в ${confirmed} из ${checked.length} нестандартных турниров.</p>
       <button class="outline small" data-action="download-csv">⬇ Скачать CSV</button>
     </div>
 
@@ -1016,11 +1015,11 @@ function tournamentView(t, date = null) {
     ${footer()}`;
 }
 
-// --- «Похожие случаи»: справочник прошлых нестандартных турниров (precedents.json, обновляется раз в неделю) ---
+// --- «Похожие случаи»: справочник прошлых нестандартных турниров (precedents.json, больше не обновляется) ---
 
 let precedents = null;
 
-// no-cache: браузер каждый раз сверяется с сайтом, справочник обновляется раз в неделю
+// no-cache: браузер каждый раз сверяется с сайтом
 fetch("precedents.json", { cache: "no-cache" })
   .then((response) => (response.ok ? response.json() : null))
   .then((data) => {
