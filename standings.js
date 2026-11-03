@@ -28,6 +28,27 @@ export function parseTournaments(json) {
   });
 }
 
+/**
+ * Турнир по одним его матчам (посредник ?t=…): Setka отдаёт их за доли секунды, но без статуса и своих итогов.
+ * Название, зал и время дня — из матчей, статус — по ним же: все матчи сыграны — завершён.
+ * partial — итоги Setka (места для жребия и сверки) ещё не загружены. null — матчей нет
+ */
+export function parseTournamentMatches(id, json) {
+  const matches = Array.isArray(json) ? json : [];
+  if (!matches.length) return null;
+  const first = matches[0];
+  try {
+    const t = parseTournament({
+      id, token: first.tournamentName, locationId: first.locationId, dayPeriodToken: first.dayPeriodToken, matches,
+    });
+    t.statusCode = t.matches.every((m) => m.winnerId != null || isDoubleLoss(m)) ? "finished" : "started";
+    t.partial = true;
+    return t;
+  } catch {
+    return null;
+  }
+}
+
 function parseTournament(t) {
   const matches = (t.matches ?? []).map((m) => {
     const setScores = (m.setScores ?? []).map((s) => ({ p1: int(s.p1Score), p2: int(s.p2Score) }));

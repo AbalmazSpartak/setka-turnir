@@ -1,6 +1,6 @@
 import { API_URL } from "./config.js?v=38";
 import {
-  parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
+  parseTournaments, parseTournamentMatches, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
 } from "./standings.js?v=38";
 import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=38";
@@ -16,25 +16,137 @@ const app = document.getElementById("app");
 if ("serviceWorker" in navigator && location.hostname !== "localhost") navigator.serviceWorker.register("sw.js").catch(() => {});
 
 // --- Данные ---
+// Setka отдаёт день целиком за 8–15 с, а по частям суток (Утро, Вечер, Ночь…) — каждую за 1–5 с, и их можно
+// загружать одновременно. Поэтому день грузится частями и показывается по мере прихода, а один турнир —
+// сначала одними матчами (доли секунды), итоги Setka догружаются следом вместе с его частью суток
 
-// В кэше — обещание, а не готовый список: одновременные запросы одного дня ждут одну загрузку
-const cache = new Map();
+async function fetchJson(params) {
+  if (!API_URL) throw new Error("Сервер для загрузки данных ещё не подключён.");
+  const query = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null)).toString();
+  const response = await fetch(`${API_URL}?${query}`, { cache: "no-store" });
+  if (!response.ok) throw new Error("Setka Cup не ответил. Проверьте интернет и попробуйте ещё раз.");
+  return response.json();
+}
 
-function loadDay(date, { fresh = false } = {}) {
-  if (!fresh && cache.has(date)) return cache.get(date);
-  const request = fetchDay(date);
-  cache.set(date, request);
-  request.catch(() => { if (cache.get(date) === request) cache.delete(date); });
+const sortDay = (list) =>
+  list.sort((a, b) => a.dayPeriodToken - b.dayPeriodToken || tournamentTitle(a).localeCompare(tournamentTitle(b), "ru"));
+
+/** Загрузки списков турниров: «дата|часть суток» или «дата|*» (день целиком) → обещание списка.
+ *  В кэше — обещание, а не готовый список: одновременные запросы одного списка ждут одну загрузку */
+const requests = new Map();
+/** Уже пришедшие списки — по тем же ключам: из них турнир берётся сразу, без ожидания */
+const loaded = new Map();
+
+/** fresh — загрузить заново; не получилось — остаётся прежний список */
+function loadList(key, params, { fresh = false } = {}) {
+  if (!fresh && requests.has(key)) return requests.get(key);
+  const previous = loaded.has(key) ? requests.get(key) : null;
+  const request = fetchJson(params).then((json) => {
+    const list = sortDay(parseTournaments(json));
+    if (requests.get(key) === request) loaded.set(key, list);
+    return list;
+  });
+  requests.set(key, request);
+  request.catch(() => {
+    if (requests.get(key) !== request) return;
+    if (previous) requests.set(key, previous);
+    else requests.delete(key);
+  });
   return request;
 }
 
-async function fetchDay(date) {
-  if (!API_URL) throw new Error("Сервер для загрузки данных ещё не подключён.");
-  const response = await fetch(`${API_URL}?date=${encodeURIComponent(date)}`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Setka Cup не ответил. Проверьте интернет и попробуйте ещё раз.");
-  const tournaments = parseTournaments(await response.json())
-    .sort((a, b) => a.dayPeriodToken - b.dayPeriodToken || tournamentTitle(a).localeCompare(tournamentTitle(b), "ru"));
-  return tournaments;
+/** more — дополнительный запрос той же загрузки: посредник не считает его отдельным посещением */
+const loadPart = (date, period, { fresh = false, more = false } = {}) =>
+  loadList(`${date}|${period}`, { date, period, more: more ? 1 : null }, { fresh });
+
+/** Номера частей суток Setka; не загрузились — день грузится целиком, одним запросом */
+let periodsRequest = null;
+
+function loadPeriods() {
+  periodsRequest ??= fetchJson({ periods: 1 })
+    .then((list) => {
+      const ids = (Array.isArray(list) ? list : []).map((p) => p?.id).filter(Number.isInteger);
+      return ids.length ? ids : null;
+    })
+    .catch(() => {
+      periodsRequest = null;
+      return null;
+    });
+  return periodsRequest;
+}
+
+/**
+ * Все турниры дня. onPart(список) — после каждой пришедшей части суток, кроме последней: можно показывать день
+ * по мере загрузки. whole — одним запросом (для многих дней сразу, чтобы не слать Setka десятки запросов)
+ */
+async function loadDay(date, { onPart, whole = false } = {}) {
+  const periods = whole ? null : await loadPeriods();
+  if (!periods) return loadList(`${date}|*`, { date });
+  const parts = new Map();
+  const all = periods.map((period, i) =>
+    loadPart(date, period, { more: i > 0 }).then((list) => {
+      parts.set(period, list);
+      if (parts.size < periods.length) onPart?.(sortDay([...parts.values()].flat()));
+      return list;
+    }));
+  return sortDay((await Promise.all(all)).flat());
+}
+
+/** Турнир из уже пришедших списков дня — без ожидания; null — ещё не загружен */
+function loadedTournament(date, id) {
+  for (const [key, list] of loaded) {
+    if (!key.startsWith(`${date}|`)) continue;
+    const t = list.find((x) => x.id === id);
+    if (t) return t;
+  }
+  return null;
+}
+
+/** Подменить турнир в пришедших списках — свежие матчи после ↻, пока его часть суток грузится заново */
+function replaceLoaded(date, t) {
+  for (const [key, list] of loaded) {
+    if (!key.startsWith(`${date}|`)) continue;
+    const i = list.findIndex((x) => x.id === t.id);
+    if (i !== -1) list[i] = t;
+  }
+}
+
+/** Только матчи турнира — за доли секунды, но без статуса и итогов Setka; null — такого турнира нет */
+const matchRequests = new Map();
+
+function loadMatches(date, id, { fresh = false } = {}) {
+  if (!fresh && matchRequests.has(id)) return matchRequests.get(id);
+  const request = fetchJson({ t: id, date }).then((json) => parseTournamentMatches(id, json));
+  matchRequests.set(id, request);
+  request.catch(() => matchRequests.get(id) === request && matchRequests.delete(id));
+  return request;
+}
+
+/** Турнир со статусом и итогами Setka: из пришедших списков, иначе — его часть суток (её узнаём по матчам), иначе — весь день */
+async function loadTournament(date, id) {
+  const known = loadedTournament(date, id);
+  if (known) return known;
+  const quick = await loadMatches(date, id).catch(() => null);
+  const inPart = quick ? (await loadPart(date, quick.dayPeriodToken, { more: true })).find((x) => x.id === id) : null;
+  return inPart ?? (await loadDay(date)).find((x) => x.id === id) ?? null;
+}
+
+/** ↻ в турнире: сначала свежие матчи (доли секунды), затем заново его часть суток — со статусом и итогами Setka */
+async function refreshTournament(date, id) {
+  const known = loadedTournament(date, id);
+  const quick = await loadMatches(date, id, { fresh: true }).catch(() => null);
+  if (!known) return; // render() сам покажет свежие матчи и догрузит итоги
+  if (!quick) {
+    await loadPart(date, known.dayPeriodToken, { fresh: true }).catch(() => {});
+    return;
+  }
+  replaceLoaded(date, { ...known, matches: quick.matches });
+  loadPart(date, known.dayPeriodToken, { fresh: true, more: true })
+    .then(() => {
+      const s = state();
+      if (s.date === date && s.id === id) render();
+    })
+    .catch(() => {});
 }
 
 const today = () => {
@@ -92,30 +204,61 @@ async function render() {
     } else if (s.test) {
       renderTest(s);
     } else if (s.date && s.id != null) {
-      app.innerHTML = loadingTournament();
-      const t = (await loadDay(s.date)).find((x) => x.id === s.id);
+      await renderTournament(s, token);
       if (token !== renderToken) return;
-      app.innerHTML = t ? tournamentView(t, s.date) : home(s, { message: "Такого турнира в этот день нет." });
-      document.title = t ? `${tournamentTitle(t)} — Турнир` : "Турнир — места Setka Cup";
     } else if (s.date && (s.hall != null || s.period != null)) {
       app.innerHTML = home(s, { loading: true });
-      const found = (await loadDay(s.date)).filter((t) => matchesLink(t, s));
+      bind();
+      // Ссылка Setka со временем дня — нужна только эта часть суток, она приходит в несколько раз быстрее всего дня
+      const list = s.period != null ? await loadPart(s.date, s.period) : await loadDay(s.date);
+      const found = list.filter((t) => matchesLink(t, s));
       if (token !== renderToken) return;
       if (found.length === 1) return go({ date: s.date, t: found[0].id }, { replace: true });
       app.innerHTML = home(s, { linkMatches: found });
     } else {
       const date = s.date ?? today();
       app.innerHTML = home({ ...s, date }, { loading: true });
-      const tournaments = await loadDay(date);
-      if (token !== renderToken) return;
-      app.innerHTML = home({ ...s, date }, { tournaments });
+      bind();
       document.title = "Турнир — места Setka Cup";
+      // Пришла часть суток — дополняем только список турниров: поле ссылки не трогаем, в нём может быть начатый ввод
+      const tournaments = await loadDay(date, { onPart: (list) => token === renderToken && showDay(date, list, true) });
+      if (token !== renderToken) return;
+      showDay(date, tournaments, false);
+      return;
     }
   } catch (error) {
     if (token !== renderToken) return;
     app.innerHTML = home({ ...s, date: s.date ?? today() }, { message: error.message });
   }
   bind();
+}
+
+/** Турнир по ссылке: сразу таблица по одним матчам (доли секунды), затем — с итогами Setka из его части суток */
+async function renderTournament(s, token) {
+  const show = (t, setkaState = null) => {
+    app.innerHTML = t ? tournamentView(t, s.date, setkaState) : home(s, { message: "Такого турнира в этот день нет." });
+    document.title = t ? `${tournamentTitle(t)} — Турнир` : "Турнир — места Setka Cup";
+  };
+  const known = loadedTournament(s.date, s.id);
+  if (known) return show(known);
+  app.innerHTML = loadingTournament();
+  bind();
+  const quick = await loadMatches(s.date, s.id).catch(() => null);
+  if (token !== renderToken) return;
+  if (!quick) {
+    const t = (await loadDay(s.date)).find((x) => x.id === s.id);
+    if (token === renderToken) show(t);
+    return;
+  }
+  show(quick, "loading");
+  bind();
+  let full = null;
+  try {
+    full = (await loadPart(s.date, quick.dayPeriodToken, { more: true })).find((x) => x.id === s.id)
+      ?? (await loadDay(s.date)).find((x) => x.id === s.id);
+  } catch { /* остаётся таблица по матчам */ }
+  if (token !== renderToken) return;
+  show(full ?? quick, full ? null : "failed");
 }
 
 // --- 🎯 Тренировка: настоящий турнир Setka без мест — расставить самому, потом сверить с Setka ---
@@ -189,7 +332,7 @@ async function pickTrainTournament(level, exceptId = null) {
   const played = new Set(trainPlayed()[level] ?? []);
   const fresh = pool.filter(([, id]) => !played.has(id) && id !== exceptId);
   const [date, id] = randomItem(fresh.length ? fresh : pool.filter(([, x]) => x !== exceptId).length ? pool.filter(([, x]) => x !== exceptId) : pool);
-  const t = (await loadDay(date)).find((x) => x.id === id);
+  const t = await loadTournament(date, id);
   if (!t) throw new Error("Setka не отдала этот турнир — нажмите «Ещё раз».");
   return { t, date };
 }
@@ -397,7 +540,8 @@ async function renderPay(s, token) {
   const days = daysBetween(period.from, period.to).filter((d) => d <= today());
   app.innerHTML = payView(period, null);
   bind();
-  const load = (list) => Promise.all(list.map(async (date) => ({ date, tournaments: await loadDay(date) })));
+  // Много дней сразу — каждый одним запросом, а не по частям суток: иначе Setka получила бы десятки запросов
+  const load = (list) => Promise.all(list.map(async (date) => ({ date, tournaments: await loadDay(date, { whole: true }) })));
   const last = lastPayout();
   const unpaidDays = last ? daysBetween(last.unpaidFrom, today()) : [];
   const [loaded, unpaid] = await Promise.all([load(days), load(unpaidDays)]);
@@ -707,10 +851,13 @@ function removePlayer(data, index) {
   return { ...data, players: data.players.filter((_, i) => i !== index), results };
 }
 
+/** Подпись под крутилкой: появляется через пару секунд (CSS), если Setka отвечает долго */
+const slowNote = () => `<span class="slow-note">Загружаем с Setka Cup — их сервер отвечает не сразу, иногда до 10–15 секунд</span>`;
+
 function loadingTournament() {
   return `
     <div class="topbar"><div class="side"><button class="ghost" data-action="back">‹ Назад</button></div><h2></h2><div class="side end"></div></div>
-    <div class="center"><span class="spinner"></span></div>`;
+    <div class="center"><span class="spinner"></span>${slowNote()}</div>`;
 }
 
 function home(s, { tournaments, linkMatches, loading, message } = {}) {
@@ -741,17 +888,36 @@ function home(s, { tournaments, linkMatches, loading, message } = {}) {
     <div class="section-title">Или выберите из списка</div>
     <div class="card">
       <div class="day-row row"><span>День</span><input type="date" id="day" value="${esc(date)}"></div>
-      ${loading ? `<div class="center row"><span class="spinner"></span></div>` : ""}
-      ${tournaments && !tournaments.length ? `<div class="center row">Турниров нет</div>` : ""}
+      <div id="day-status">${dayStatus(tournaments, loading)}</div>
     </div>
     ${csvLink()}
     <p class="note"><a href="?help=1" data-action="help-open">📖 Справка</a> — что умеет сайт и как он считает места</p>
-    ${halls(tournaments ?? []).map((hall) => `
-      <div class="section-title hall">${esc(hall.name)}${hall.live ? ` <span class="badge live">идёт</span>` : ""}</div>
-      <div class="card">
-        ${hall.tournaments.map((t) => tournamentRow(t, date, hall.mixed)).join("")}
-      </div>`).join("")}
+    <div id="day-halls">${dayHalls(tournaments, date)}</div>
     ${footer()}`;
+}
+
+/** Строка под выбором дня: крутилка, пока грузится, или «Турниров нет» */
+function dayStatus(tournaments, loading) {
+  if (loading) return `<div class="center row"><span class="spinner"></span>${slowNote()}</div>`;
+  return tournaments && !tournaments.length ? `<div class="center row">Турниров нет</div>` : "";
+}
+
+function dayHalls(tournaments, date) {
+  return halls(tournaments ?? []).map((hall) => `
+    <div class="section-title hall">${esc(hall.name)}${hall.live ? ` <span class="badge live">идёт</span>` : ""}</div>
+    <div class="card">
+      ${hall.tournaments.map((t) => tournamentRow(t, date, hall.mixed)).join("")}
+    </div>`).join("");
+}
+
+/** Обновить на главной только список турниров дня — остальная страница (и начатый ввод ссылки) остаётся как есть */
+function showDay(date, tournaments, loading) {
+  const status = document.getElementById("day-status");
+  const list = document.getElementById("day-halls");
+  if (!status || !list) return;
+  status.innerHTML = dayStatus(tournaments, loading);
+  list.innerHTML = dayHalls(tournaments, date);
+  list.querySelectorAll("[data-action]").forEach((el) => el.addEventListener("click", onAction));
 }
 
 function csvLink() {
@@ -951,7 +1117,8 @@ function outcomesOf(t) {
   return outcomes;
 }
 
-function tournamentView(t, date = null) {
+/** setkaState: "loading" — места посчитаны по одним матчам, итоги Setka ещё грузятся; "failed" — не загрузились */
+function tournamentView(t, date = null, setkaState = null) {
   if (whatIf.id !== t.id) Object.assign(whatIf, { id: t.id, open: false, picks: new Map(), applied: false });
   if (picked.tournament !== t.id) Object.assign(picked, { tournament: t.id, player: null });
   const outcomes = outcomesOf(t);
@@ -968,6 +1135,8 @@ function tournamentView(t, date = null) {
       <div class="side end">${t.isTest ? "" : `<button class="ghost icon" data-action="refresh" aria-label="Обновить" title="Обновить">↻</button>`}</div>
     </div>
     ${date ? `<p class="tournament-date">${esc(longDate(date))}</p>` : ""}
+    ${setkaState === "loading" ? `<p class="note setka-wait"><span class="spinner small"></span>Сверяем с итогами Setka — таблица по матчам уже посчитана</p>` : ""}
+    ${setkaState === "failed" ? `<p class="note">Итоги Setka не загрузились — места посчитаны по матчам. ↻ — попробовать ещё раз.</p>` : ""}
     ${t.isTest ? `
       <div class="card pad test-banner" style="margin-top:8px">
         <h3>🧪 Тестовые данные</h3>
@@ -1592,9 +1761,7 @@ async function onAction(event) {
       const s = state();
       el.disabled = true;
       el.textContent = "…";
-      try {
-        await loadDay(s.date, { fresh: true });
-      } catch { /* покажем то, что было */ }
+      await refreshTournament(s.date, s.id);
       render();
       break;
     }
