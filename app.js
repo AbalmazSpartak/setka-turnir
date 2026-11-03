@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=38";
+import { API_URL } from "./config.js?v=39";
 import {
   parseTournaments, parseTournamentMatches, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=38";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=38";
-import { toCSV } from "./precedents-csv.js?v=38";
+} from "./standings.js?v=39";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=39";
+import { toCSV } from "./precedents-csv.js?v=39";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=38";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=38";
+} from "./testmode.js?v=39";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=39";
 
 const app = document.getElementById("app");
 
@@ -20,10 +20,11 @@ if ("serviceWorker" in navigator && location.hostname !== "localhost") navigator
 // загружать одновременно. Поэтому день грузится частями и показывается по мере прихода, а один турнир —
 // сначала одними матчами (доли секунды), итоги Setka догружаются следом вместе с его частью суток
 
-async function fetchJson(params) {
+/** Закрытые дни посредник разрешает браузеру помнить час — открытые снова, они не скачиваются; fresh (↻) — мимо памяти браузера */
+async function fetchJson(params, { fresh = false } = {}) {
   if (!API_URL) throw new Error("Сервер для загрузки данных ещё не подключён.");
   const query = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null)).toString();
-  const response = await fetch(`${API_URL}?${query}`, { cache: "no-store" });
+  const response = await fetch(`${API_URL}?${query}`, { cache: fresh ? "reload" : "default" });
   if (!response.ok) throw new Error("Setka Cup не ответил. Проверьте интернет и попробуйте ещё раз.");
   return response.json();
 }
@@ -40,7 +41,7 @@ const loaded = new Map();
 /** fresh — загрузить заново; не получилось — остаётся прежний список */
 function loadList(key, params, { fresh = false } = {}) {
   if (!fresh && requests.has(key)) return requests.get(key);
-  const request = fetchJson(params).then((json) => {
+  const request = fetchJson(params, { fresh }).then((json) => {
     const list = sortDay(parseTournaments(json));
     if (requests.get(key) === request) loaded.set(key, list);
     return list;
@@ -115,7 +116,7 @@ const matchRequests = new Map();
 
 function loadMatches(date, id, { fresh = false } = {}) {
   if (!fresh && matchRequests.has(id)) return matchRequests.get(id);
-  const request = fetchJson({ t: id, date }).then((json) => parseTournamentMatches(id, json));
+  const request = fetchJson({ t: id, date }, { fresh }).then((json) => parseTournamentMatches(id, json));
   matchRequests.set(id, request);
   request.catch(() => matchRequests.get(id) === request && matchRequests.delete(id));
   return request;

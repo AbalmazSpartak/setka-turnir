@@ -10,8 +10,8 @@ const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache
 const ALLOWED_ORIGINS = ["https://abalmazspartak.github.io", "http://localhost:8000"];
 
 /**
- * Что запросить у Setka: адрес, ключ для кэша, день данных (для кэша и статистики), срок копии для любого дня.
- * null — запрос неверный. Тот же разбор использует локальный посредник tools/dev-server.mjs
+ * Что запросить у Setka: адрес, ключ для кэша, день данных (для кэша и статистики), срок копии для любого дня,
+ * что урезать (trim). null — запрос неверный. Тот же разбор использует локальный посредник tools/dev-server.mjs
  */
 export function upstreamFor(params) {
   const date = params.get("date") ?? "";
@@ -19,16 +19,76 @@ export function upstreamFor(params) {
   if (params.has("periods")) return { url: `${SETKA}/DayPeriods/ru`, key: "periods", date: null, ttl: 86400 };
   if (params.has("t")) {
     const id = params.get("t");
-    return /^\d{1,9}$/.test(id) ? { url: `${SETKA}/Matches/ru?tournamentId=${id}`, key: `t/${id}`, date: day } : null;
+    return /^\d{1,9}$/.test(id)
+      ? { url: `${SETKA}/Matches/ru?tournamentId=${id}`, key: `t/${id}`, date: day, trim: "matches" }
+      : null;
   }
   if (!day) return null;
   if (params.has("period")) {
     const period = params.get("period");
     return /^\d{1,2}$/.test(period)
-      ? { url: `${SETKA}/Tournaments/ru?date=${day}&dayPeriod=${period}`, key: `day/${day}/${period}`, date: day }
+      ? { url: `${SETKA}/Tournaments/ru?date=${day}&dayPeriod=${period}`, key: `day/${day}/${period}`, date: day, trim: "tournaments" }
       : null;
   }
+  // День целиком (страница зарплаты, запасной путь) — как есть: урезать 500 КБ дольше, чем укладывается в лимит Cloudflare
   return { url: `${SETKA}/Tournaments/ru?date=${day}`, key: `day/${day}`, date: day };
+}
+
+// --- Только поля, которые читает страница (standings.js, parseTournament) ---
+// Setka присылает втрое больше: фото и цвета игроков, все матчи ещё раз в итогах турнира.
+// Понадобилось сайту новое поле Setka — добавить его и здесь
+
+// Поля перечислены прямо, без общего «выбрать ключи»: так меньше работы, а лимит Cloudflare — 10 мс на запрос.
+// Отсутствующие поля (undefined) JSON.stringify пропускает сам
+const isObject = (o) => o && typeof o === "object" && !Array.isArray(o);
+const trimPlayer = (p) => (isObject(p) ? { id: p.id, firstName: p.firstName, lastName: p.lastName } : p);
+
+/** meta — у матчей одного турнира (?t=) ещё название, зал и время дня: по ним страница узнаёт его часть суток */
+function trimMatch(m, meta) {
+  if (!m || typeof m !== "object") return m;
+  const out = {
+    id: m.id, position: m.position, forPositionId: m.forPositionId,
+    player1Score: m.player1Score, player2Score: m.player2Score, technicalResult: m.technicalResult, statusId: m.statusId,
+    player1: trimPlayer(m.player1), player2: trimPlayer(m.player2),
+    winner: isObject(m.winner) ? { id: m.winner.id } : m.winner,
+    setScores: Array.isArray(m.setScores) ? m.setScores.map((s) => (isObject(s) ? { p1Score: s.p1Score, p2Score: s.p2Score } : s)) : m.setScores,
+  };
+  if (meta) Object.assign(out, { tournamentName: m.tournamentName, locationId: m.locationId, dayPeriodToken: m.dayPeriodToken });
+  return out;
+}
+
+/** Итоги Setka: только места (для жребия и сверки) — без матчей, очков, имён и фото */
+function trimResult(r) {
+  if (!isObject(r)) return r;
+  let players = r.players;
+  if (isObject(players)) {
+    players = {};
+    for (const key in r.players) {
+      const p = r.players[key];
+      players[key] = isObject(p) ? { position: p.position, real_position: p.real_position } : p;
+    }
+  }
+  return { positions: r.positions, players };
+}
+
+function trimTournament(t) {
+  if (!t || typeof t !== "object") return t;
+  return {
+    id: t.id, token: t.token, locationId: t.locationId, dayPeriodToken: t.dayPeriodToken, statusCode: t.statusCode,
+    result: trimResult(t.result),
+    matches: Array.isArray(t.matches) ? t.matches.map((m) => trimMatch(m, false)) : t.matches,
+  };
+}
+
+/** Ответ Setka → только нужное странице; не JSON или неожиданный вид — как есть, разберётся страница */
+export function trimText(trim, text) {
+  try {
+    const json = JSON.parse(text);
+    if (!Array.isArray(json)) return text;
+    return JSON.stringify(trim === "matches" ? json.map((m) => trimMatch(m, true)) : json.map(trimTournament));
+  } catch {
+    return text;
+  }
 }
 
 // Обезличенная метка посетителя: отпечаток адреса и браузера с солью дня. Каждые сутки — новая,
@@ -72,21 +132,26 @@ export default {
     if (!params.has("more") && !params.has("periods")) ctx.waitUntil(recordVisit(env, request, target.date ?? ""));
 
     // Сегодня и вчера (ночные турниры доигрывают после полуночи) — без копии, чтобы счёт идущих матчей был свежим;
-    // дни раньше уже закрыты — временная копия на час в кэше Cloudflare, Setka отвечает 10 с и дольше.
+    // дни раньше уже закрыты — временная копия на час в кэше Cloudflare (Setka отвечает 10 с и дольше)
+    // и в браузере посетителя: тот же день, открытый снова, не скачивается заново.
     // Setka сама за Cloudflare, поэтому cf.cacheTtl на её запросе не действует — нужен свой кэш
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     const ttl = target.ttl ?? (target.date && target.date < yesterday ? 3600 : 0);
-    const key = new Request(`https://setka-turnir.cache/${target.key}`);
+    const key = new Request(`https://setka-turnir.cache/v2/${target.key}`);
     let body = ttl ? await caches.default.match(key) : undefined;
     const hit = Boolean(body);
     if (!body) {
       const upstream = await fetch(target.url);
-      if (!upstream.ok || !ttl) {
+      if (!upstream.ok) {
         return new Response(upstream.body, { status: upstream.status, headers: { ...cors, ...JSON_HEADERS } });
       }
-      body = new Response(upstream.body, { headers: { ...JSON_HEADERS, "Cache-Control": `max-age=${ttl}` } });
+      const payload = target.trim ? trimText(target.trim, await upstream.text()) : upstream.body;
+      if (!ttl) return new Response(payload, { headers: { ...cors, ...JSON_HEADERS } });
+      body = new Response(payload, { headers: { ...JSON_HEADERS, "Cache-Control": `max-age=${ttl}` } });
       ctx.waitUntil(caches.default.put(key, body.clone()));
     }
-    return new Response(body.body, { headers: { ...cors, ...JSON_HEADERS, "X-Cache": hit ? "HIT" : "MISS" } });
+    return new Response(body.body, {
+      headers: { ...cors, ...JSON_HEADERS, "Cache-Control": `private, max-age=${ttl}`, "X-Cache": hit ? "HIT" : "MISS" },
+    });
   },
 };

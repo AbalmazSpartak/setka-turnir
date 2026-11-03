@@ -3,10 +3,10 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
-import { upstreamFor } from "../worker/worker.js";
+import { upstreamFor, trimText } from "../worker/worker.js";
 
 const root = new URL("..", import.meta.url).pathname;
-const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".json": "application/json" };
+const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".webp": "image/webp", ".json": "application/json", ".webmanifest": "application/manifest+json" };
 
 createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
@@ -14,8 +14,9 @@ createServer(async (req, res) => {
     const target = upstreamFor(url.searchParams);
     if (!target) return res.writeHead(400).end();
     const upstream = await fetch(target.url);
+    const text = await upstream.text();
     res.writeHead(upstream.status, { "Content-Type": "application/json; charset=utf-8" });
-    res.end(Buffer.from(await upstream.arrayBuffer()));
+    res.end(upstream.ok && target.trim ? trimText(target.trim, text) : text);
     return;
   }
   const path = normalize(join(root, url.pathname === "/" ? "index.html" : url.pathname));
