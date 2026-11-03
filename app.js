@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=37";
+import { API_URL } from "./config.js?v=38";
 import {
   parseTournaments, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=37";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=37";
-import { toCSV } from "./precedents-csv.js?v=37";
+} from "./standings.js?v=38";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=38";
+import { toCSV } from "./precedents-csv.js?v=38";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=37";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=37";
+} from "./testmode.js?v=38";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=38";
 
 const app = document.getElementById("app");
 
@@ -17,16 +17,23 @@ if ("serviceWorker" in navigator && location.hostname !== "localhost") navigator
 
 // --- Данные ---
 
+// В кэше — обещание, а не готовый список: одновременные запросы одного дня ждут одну загрузку
 const cache = new Map();
 
-async function loadDay(date, { fresh = false } = {}) {
+function loadDay(date, { fresh = false } = {}) {
   if (!fresh && cache.has(date)) return cache.get(date);
+  const request = fetchDay(date);
+  cache.set(date, request);
+  request.catch(() => { if (cache.get(date) === request) cache.delete(date); });
+  return request;
+}
+
+async function fetchDay(date) {
   if (!API_URL) throw new Error("Сервер для загрузки данных ещё не подключён.");
   const response = await fetch(`${API_URL}?date=${encodeURIComponent(date)}`, { cache: "no-store" });
   if (!response.ok) throw new Error("Setka Cup не ответил. Проверьте интернет и попробуйте ещё раз.");
   const tournaments = parseTournaments(await response.json())
     .sort((a, b) => a.dayPeriodToken - b.dayPeriodToken || tournamentTitle(a).localeCompare(tournamentTitle(b), "ru"));
-  cache.set(date, tournaments);
   return tournaments;
 }
 

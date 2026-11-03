@@ -1,6 +1,7 @@
 // Посредник для страницы: забирает турниры Setka Cup за день и отдаёт их с разрешением для браузера (CORS).
 // Setka не разрешает сайтам загружать свои данные напрямую, поэтому страница ходит сюда:
 // GET https://<worker>/?date=2026-10-05
+const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
 const ALLOWED_ORIGINS = ["https://abalmazspartak.github.io", "http://localhost:8000"];
 
 // Обезличенная метка посетителя: отпечаток адреса и браузера с солью дня. Каждые сутки — новая,
@@ -42,13 +43,22 @@ export default {
 
     ctx.waitUntil(recordVisit(env, request, date));
 
-    const upstream = await fetch(`https://tabletennis.setkacup.com/api/Tournaments/ru?date=${date}`, {
-      // Короткий кэш: одновременные запросы одного дня не дёргают Setka, а счёт идущих матчей остаётся свежим
-      cf: { cacheTtl: 15, cacheEverything: true },
-    });
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers: { ...cors, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-    });
+    // Сегодня и вчера (ночные турниры доигрывают после полуночи) — без копии, чтобы счёт идущих матчей был свежим;
+    // дни раньше уже закрыты — временная копия на час в кэше Cloudflare, Setka отвечает 10 с и дольше.
+    // Setka сама за Cloudflare, поэтому cf.cacheTtl на её запросе не действует — нужен свой кэш
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const closed = date < yesterday;
+    const key = new Request(`https://setka-turnir.cache/${date}`);
+    let body = closed ? await caches.default.match(key) : undefined;
+    const hit = Boolean(body);
+    if (!body) {
+      const upstream = await fetch(`https://tabletennis.setkacup.com/api/Tournaments/ru?date=${date}`);
+      if (!upstream.ok || !closed) {
+        return new Response(upstream.body, { status: upstream.status, headers: { ...cors, ...JSON_HEADERS } });
+      }
+      body = new Response(upstream.body, { headers: { ...JSON_HEADERS, "Cache-Control": "max-age=3600" } });
+      ctx.waitUntil(caches.default.put(key, body.clone()));
+    }
+    return new Response(body.body, { headers: { ...cors, ...JSON_HEADERS, "X-Cache": hit ? "HIT" : "MISS" } });
   },
 };
