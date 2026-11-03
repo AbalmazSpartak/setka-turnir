@@ -40,7 +40,6 @@ const loaded = new Map();
 /** fresh — загрузить заново; не получилось — остаётся прежний список */
 function loadList(key, params, { fresh = false } = {}) {
   if (!fresh && requests.has(key)) return requests.get(key);
-  const previous = loaded.has(key) ? requests.get(key) : null;
   const request = fetchJson(params).then((json) => {
     const list = sortDay(parseTournaments(json));
     if (requests.get(key) === request) loaded.set(key, list);
@@ -49,7 +48,7 @@ function loadList(key, params, { fresh = false } = {}) {
   requests.set(key, request);
   request.catch(() => {
     if (requests.get(key) !== request) return;
-    if (previous) requests.set(key, previous);
+    if (loaded.has(key)) requests.set(key, Promise.resolve(loaded.get(key)));
     else requests.delete(key);
   });
   return request;
