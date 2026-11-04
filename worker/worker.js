@@ -5,6 +5,7 @@
 //   ?date=2026-10-05&location=7 — турниры одного зала за день (Сеул — 7, Токио — 8; около 1 с); можно вместе с period
 //   ?t=63928&date=2026-10-05    — только матчи одного турнира, без статуса и итогов Setka (доли секунды)
 //   ?periods=1                  — список частей суток
+//   ?live=1                     — матчи, которые идут прямо сейчас: по одному на играющий зал (доли секунды)
 // &more=1 — дополнительный запрос той же загрузки страницы: в статистику посещений не пишется
 const SETKA = "https://tabletennis.setkacup.com/api";
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
@@ -18,6 +19,7 @@ export function upstreamFor(params) {
   const date = params.get("date") ?? "";
   const day = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
   if (params.has("periods")) return { url: `${SETKA}/DayPeriods/ru`, key: "periods", date: null, ttl: 86400 };
+  if (params.has("live")) return { url: `${SETKA}/Matches/widget/ru`, key: "live", date: null, ttl: 0, trim: "matches" };
   if (params.has("t")) {
     const id = params.get("t");
     return /^\d{1,9}$/.test(id)
@@ -46,7 +48,10 @@ export function upstreamFor(params) {
 const isObject = (o) => o && typeof o === "object" && !Array.isArray(o);
 const trimPlayer = (p) => (isObject(p) ? { id: p.id, firstName: p.firstName, lastName: p.lastName } : p);
 
-/** meta — у матчей одного турнира (?t=) ещё название, зал и время дня: по ним страница узнаёт его часть суток */
+/**
+ * meta — у матчей без турнира вокруг (?t=, ?live=) ещё турнир, его название, зал, время дня и начало матча:
+ * по ним страница узнаёт часть суток турнира и его день у Setka (ночные турниры Setka относит к предыдущему дню)
+ */
 function trimMatch(m, meta) {
   if (!m || typeof m !== "object") return m;
   const out = {
@@ -56,7 +61,11 @@ function trimMatch(m, meta) {
     winner: isObject(m.winner) ? { id: m.winner.id } : m.winner,
     setScores: Array.isArray(m.setScores) ? m.setScores.map((s) => (isObject(s) ? { p1Score: s.p1Score, p2Score: s.p2Score } : s)) : m.setScores,
   };
-  if (meta) Object.assign(out, { tournamentName: m.tournamentName, locationId: m.locationId, dayPeriodToken: m.dayPeriodToken });
+  if (meta) {
+    Object.assign(out, {
+      tournamentId: m.tournamentId, tournamentName: m.tournamentName, locationId: m.locationId, dayPeriodToken: m.dayPeriodToken, startDate: m.startDate,
+    });
+  }
   return out;
 }
 
@@ -132,7 +141,7 @@ export default {
       });
     }
 
-    if (!params.has("more") && !params.has("periods")) ctx.waitUntil(recordVisit(env, request, target.date ?? ""));
+    if (!params.has("more") && !params.has("periods") && !params.has("live")) ctx.waitUntil(recordVisit(env, request, target.date ?? ""));
 
     // Сегодня и вчера (ночные турниры доигрывают после полуночи) — без копии, чтобы счёт идущих матчей был свежим;
     // дни раньше уже закрыты — временная копия на час в кэше Cloudflare (Setka отвечает 10 с и дольше)
@@ -140,7 +149,7 @@ export default {
     // Setka сама за Cloudflare, поэтому cf.cacheTtl на её запросе не действует — нужен свой кэш
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     const ttl = target.ttl ?? (target.date && target.date < yesterday ? 3600 : 0);
-    const key = new Request(`https://setka-turnir.cache/v2/${target.key}`);
+    const key = new Request(`https://setka-turnir.cache/v3/${target.key}`);
     let body = ttl ? await caches.default.match(key) : undefined;
     const hit = Boolean(body);
     if (!body) {

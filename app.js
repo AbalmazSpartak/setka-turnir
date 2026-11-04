@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=39";
+import { API_URL } from "./config.js?v=40";
 import {
-  parseTournaments, parseTournamentMatches, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
+  parseTournaments, parseTournamentMatches, parseLive, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=39";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=39";
-import { toCSV } from "./precedents-csv.js?v=39";
+} from "./standings.js?v=40";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=40";
+import { toCSV } from "./precedents-csv.js?v=40";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=39";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=39";
+} from "./testmode.js?v=40";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=40";
 
 const app = document.getElementById("app");
 
@@ -264,6 +264,8 @@ async function render() {
       app.innerHTML = home({ ...s, date }, { loading: true });
       bind();
       document.title = "Турнир — места Setka Cup";
+      // Идущие матчи — первыми: отдельный запрос, Setka отвечает за доли секунды
+      if (date === today()) loadLive().then((list) => token === renderToken && showLive(list));
       // Пришла часть суток — дополняем только список турниров: поле ссылки не трогаем, в нём может быть начатый ввод
       const tournaments = await loadDay(date, { onPart: (list) => token === renderToken && showDay(date, list, true) });
       if (token !== renderToken) return;
@@ -293,6 +295,11 @@ async function renderTournament(s, token) {
     const t = (await loadDay(s.date)).find((x) => x.id === s.id);
     if (token === renderToken) show(t);
     return;
+  }
+  // Ссылка с соседней датой (ночной турнир, «Идут сейчас»): у Setka турнир числится в дне своего первого матча — поправляем адрес
+  if (quick.day && quick.day !== s.date) {
+    s = { ...s, date: quick.day };
+    history.replaceState(null, "", `?${new URLSearchParams({ date: s.date, t: s.id })}`);
   }
   show(quick, "loading");
   bind();
@@ -934,6 +941,7 @@ function home(s, { tournaments, linkMatches, loading, message } = {}) {
       <div class="day-row row"><span>День</span><input type="date" id="day" value="${esc(date)}"></div>
       <div id="day-status">${dayStatus(tournaments, loading)}</div>
     </div>
+    <div id="live">${date === today() && Date.now() - live.at < LIVE_FRESH ? liveBlock(live.list) : ""}</div>
     ${csvLink()}
     <p class="note"><a href="?help=1" data-action="help-open">📖 Справка</a> — что умеет сайт и как он считает места</p>
     <div id="day-halls">${dayHalls(tournaments, date)}</div>
@@ -962,6 +970,53 @@ function showDay(date, tournaments, loading) {
   status.innerHTML = dayStatus(tournaments, loading);
   list.innerHTML = dayHalls(tournaments, date);
   list.querySelectorAll("[data-action]").forEach((el) => el.addEventListener("click", onAction));
+}
+
+// --- «Идут сейчас»: текущий матч каждого играющего зала — приходит раньше списка дня ---
+
+/** Сколько ответ считается свежим: перерисовка страницы не запрашивает его заново */
+const LIVE_FRESH = 30000;
+/** Последний ответ: list — уже пришёл, at — когда запрошен */
+const live = { at: 0, list: null, request: null };
+
+function loadLive() {
+  if (!live.request || Date.now() - live.at > LIVE_FRESH) {
+    live.at = Date.now();
+    live.request = fetchJson({ live: 1 })
+      .then((json) => (live.list = parseLive(json)))
+      .catch(() => {
+        live.request = null;
+        return [];
+      });
+  }
+  return live.request;
+}
+
+/** Строка на зал: «Сеул · Вечер», «Иванов – Петров · 2:1 по партиям, 4-я партия 7:5»; Сеул и Токио первыми */
+function liveBlock(list) {
+  if (!list?.length) return "";
+  const rows = list.map((x) => ({ ...x, parts: titleParts(x) }))
+    .sort((a, b) => pinOrder(a.parts.hall) - pinOrder(b.parts.hall) || a.parts.hall.localeCompare(b.parts.hall, "ru"));
+  return `
+    <div class="section-title">Идут сейчас</div>
+    <div class="card">
+      ${rows.map(({ parts, match, day, tournamentId }) => `
+        <button class="tournament row" data-action="open" data-date="${esc(day ?? today())}" data-id="${tournamentId}">
+          <span class="info">
+            <span class="name">${esc(parts.hall)} · ${esc(parts.period)}${parts.division !== "Мужчины" ? ` · ${esc(parts.division)}` : ""}</span><br>
+            <span class="sub">${esc([match.player1, match.player2].map((p) => p?.lastName || "?").join(" – "))} · ${esc(liveScore(match).replace("-я", "‑я"))}</span>
+          </span>
+          <span class="badge live">идёт</span>
+          <span class="chevron">›</span>
+        </button>`).join("")}
+    </div>`;
+}
+
+function showLive(list) {
+  const box = document.getElementById("live");
+  if (!box) return;
+  box.innerHTML = liveBlock(list);
+  box.querySelectorAll("[data-action]").forEach((el) => el.addEventListener("click", onAction));
 }
 
 function csvLink() {

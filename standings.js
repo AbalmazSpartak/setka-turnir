@@ -43,29 +43,60 @@ export function parseTournamentMatches(id, json) {
     });
     t.statusCode = t.matches.every((m) => m.winnerId != null || isDoubleLoss(m)) ? "finished" : "started";
     t.partial = true;
+    t.day = setkaDay(matches);
     return t;
   } catch {
     return null;
   }
 }
 
-function parseTournament(t) {
-  const matches = (t.matches ?? []).map((m) => {
-    const setScores = (m.setScores ?? []).map((s) => ({ p1: int(s.p1Score), p2: int(s.p2Score) }));
-    return {
-      id: m.id,
-      position: int(m.position),
-      forPositionId: int(m.forPositionId, 1),
-      player1: player(m.player1),
-      player2: player(m.player2),
-      score1: m.player1Score == null ? null : String(m.player1Score),
-      score2: m.player2Score == null ? null : String(m.player2Score),
-      technical: int(m.technicalResult) !== 0,
-      winnerId: m.winner?.id ?? null,
-      statusId: m.statusId == null ? null : int(m.statusId),
-      setScores,
-    };
+/**
+ * День турнира у Setka — дата (UTC) его первого матча: ночные турниры («2026-11-04 Ночь Сеул») Setka относит
+ * к предыдущему дню. null — у матчей нет времени начала
+ */
+function setkaDay(matches) {
+  const starts = matches.map((m) => m?.startDate).filter((s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}T/.test(s)).sort();
+  return starts.length ? starts[0].slice(0, 10) : null;
+}
+
+/**
+ * Матчи, которые идут прямо сейчас (посредник ?live=1): по одному на играющий зал.
+ * Каждый — с турниром (id, название, зал, время дня) и днём турнира у Setka (по началу матча — уточнит страница турнира)
+ */
+export function parseLive(json) {
+  return (Array.isArray(json) ? json : []).flatMap((m) => {
+    try {
+      const match = parseMatch(m);
+      if (!isLive(match) || m.tournamentId == null) return [];
+      return [{
+        tournamentId: m.tournamentId, token: m.tournamentName ?? "", locationId: int(m.locationId), dayPeriodToken: int(m.dayPeriodToken),
+        day: setkaDay([m]), match,
+      }];
+    } catch {
+      return [];
+    }
   });
+}
+
+function parseMatch(m) {
+  const setScores = (m.setScores ?? []).map((s) => ({ p1: int(s.p1Score), p2: int(s.p2Score) }));
+  return {
+    id: m.id,
+    position: int(m.position),
+    forPositionId: int(m.forPositionId, 1),
+    player1: player(m.player1),
+    player2: player(m.player2),
+    score1: m.player1Score == null ? null : String(m.player1Score),
+    score2: m.player2Score == null ? null : String(m.player2Score),
+    technical: int(m.technicalResult) !== 0,
+    winnerId: m.winner?.id ?? null,
+    statusId: m.statusId == null ? null : int(m.statusId),
+    setScores,
+  };
+}
+
+function parseTournament(t) {
+  const matches = (t.matches ?? []).map(parseMatch);
   return {
     id: t.id,
     token: t.token ?? "",
