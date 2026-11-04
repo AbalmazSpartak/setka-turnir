@@ -17,8 +17,9 @@ if ("serviceWorker" in navigator && location.hostname !== "localhost") navigator
 
 // --- Данные ---
 // Setka отдаёт день целиком за 8–15 с, а по частям суток (Утро, Вечер, Ночь…) — каждую за 1–5 с, и их можно
-// загружать одновременно. Поэтому день грузится частями и показывается по мере прихода, а один турнир —
-// сначала одними матчами (доли секунды), итоги Setka догружаются следом вместе с его частью суток
+// загружать одновременно. Поэтому день грузится частями и показывается по мере прихода (Сеул и Токио — отдельно
+// и первыми: зал Setka отдаёт за секунду), а один турнир — сначала одними матчами (доли секунды),
+// итоги Setka догружаются следом вместе с его частью суток
 
 /** Закрытые дни посредник разрешает браузеру помнить час — открытые снова, они не скачиваются; fresh (↻) — мимо памяти браузера */
 async function fetchJson(params, { fresh = false } = {}) {
@@ -32,8 +33,8 @@ async function fetchJson(params, { fresh = false } = {}) {
 const sortDay = (list) =>
   list.sort((a, b) => a.dayPeriodToken - b.dayPeriodToken || tournamentTitle(a).localeCompare(tournamentTitle(b), "ru"));
 
-/** Загрузки списков турниров: «дата|часть суток» или «дата|*» (день целиком) → обещание списка.
- *  В кэше — обещание, а не готовый список: одновременные запросы одного списка ждут одну загрузку */
+/** Загрузки списков турниров: «дата|часть суток», «дата|часть суток или пусто|l<зал>», «дата|*» (день целиком) → обещание
+ *  списка. В кэше — обещание, а не готовый список: одновременные запросы одного списка ждут одну загрузку */
 const requests = new Map();
 /** Уже пришедшие списки — по тем же ключам: из них турнир берётся сразу, без ожидания */
 const loaded = new Map();
@@ -43,7 +44,11 @@ function loadList(key, params, { fresh = false } = {}) {
   if (!fresh && requests.has(key)) return requests.get(key);
   const request = fetchJson(params, { fresh }).then((json) => {
     const list = sortDay(parseTournaments(json));
-    if (requests.get(key) === request) loaded.set(key, list);
+    if (requests.get(key) === request) {
+      // В конец: турнир ищется с самых свежих списков (он бывает и в списке зала, и в части суток)
+      loaded.delete(key);
+      loaded.set(key, list);
+    }
     return list;
   });
   requests.set(key, request);
@@ -58,6 +63,13 @@ function loadList(key, params, { fresh = false } = {}) {
 /** more — дополнительный запрос той же загрузки: посредник не считает его отдельным посещением */
 const loadPart = (date, period, { fresh = false, more = false } = {}) =>
   loadList(`${date}|${period}`, { date, period, more: more ? 1 : null }, { fresh });
+
+/** Турниры одного зала — за день или в одной части суток: Setka отдаёт их примерно за секунду */
+const loadHall = (date, location, { period = null, more = false } = {}) =>
+  loadList(`${date}|${period ?? ""}|l${location}`, { date, period, location, more: more ? 1 : null });
+
+/** Залы Сеул и Токио (номера Setka) — первые в списке дня (PINNED_HALLS) и грузятся отдельно, чтобы появляться первыми */
+const PINNED_LOCATIONS = [7, 8];
 
 /** Номера частей суток Setka; не загрузились — день грузится целиком, одним запросом */
 let periodsRequest = null;
@@ -76,25 +88,57 @@ function loadPeriods() {
 }
 
 /**
- * Все турниры дня. onPart(список) — после каждой пришедшей части суток, кроме последней: можно показывать день
- * по мере загрузки. whole — одним запросом (для многих дней сразу, чтобы не слать Setka десятки запросов)
+ * Все турниры дня. onPart(список) — по мере прихода (Сеул и Токио, части суток), пока день не собран целиком:
+ * можно показывать день по ходу загрузки. whole — одним запросом (для многих дней сразу, чтобы не слать Setka десятки запросов)
  */
 async function loadDay(date, { onPart, whole = false } = {}) {
   const periods = whole ? null : await loadPeriods();
   if (!periods) return loadList(`${date}|*`, { date });
-  const parts = new Map();
+  // Пришедшие списки для показа по ходу загрузки; повторы (Сеул и Токио придут ещё раз в частях суток) — один раз
+  const arrived = new Map();
+  let partsDone = 0;
+  // Пока не пришли Сеул и Токио (но не дольше 2 с), другие залы не показываются: иначе они встают наверх,
+  // а потом съезжают вниз под Сеул и Токио
+  const pinnedPending = new Set(onPart ? PINNED_LOCATIONS : []);
+  let waitPinned = pinnedPending.size > 0;
+  const show = () => {
+    if (partsDone === periods.length) return;
+    const byId = new Map();
+    for (const list of arrived.values()) for (const t of list) byId.set(t.id, t);
+    const list = [...byId.values()];
+    onPart(sortDay(waitPinned ? list.filter((t) => PINNED_LOCATIONS.includes(t.locationId)) : list));
+  };
+  const pinnedDone = (location) => {
+    pinnedPending.delete(location);
+    if (!pinnedPending.size) waitPinned = false;
+    show();
+  };
+  if (waitPinned) {
+    setTimeout(() => {
+      waitPinned = false;
+      show();
+    }, 2000);
+  }
+  // Сеул и Токио — отдельными запросами, только для показа: сам день составляют части суток
+  for (const location of pinnedPending) {
+    loadHall(date, location, { more: true }).then((list) => {
+      arrived.set(`l${location}`, list);
+      pinnedDone(location);
+    }, () => pinnedDone(location));
+  }
   const all = periods.map((period, i) =>
     loadPart(date, period, { more: i > 0 }).then((list) => {
-      parts.set(period, list);
-      if (parts.size < periods.length) onPart?.(sortDay([...parts.values()].flat()));
+      arrived.set(period, list);
+      partsDone++;
+      if (onPart) show();
       return list;
     }));
   return sortDay((await Promise.all(all)).flat());
 }
 
-/** Турнир из уже пришедших списков дня — без ожидания; null — ещё не загружен */
+/** Турнир из уже пришедших списков дня — без ожидания, из самого свежего списка; null — ещё не загружен */
 function loadedTournament(date, id) {
-  for (const [key, list] of loaded) {
+  for (const [key, list] of [...loaded].reverse()) {
     if (!key.startsWith(`${date}|`)) continue;
     const t = list.find((x) => x.id === id);
     if (t) return t;
@@ -209,8 +253,8 @@ async function render() {
     } else if (s.date && (s.hall != null || s.period != null)) {
       app.innerHTML = home(s, { loading: true });
       bind();
-      // Ссылка Setka со временем дня — нужна только эта часть суток, она приходит в несколько раз быстрее всего дня
-      const list = s.period != null ? await loadPart(s.date, s.period) : await loadDay(s.date);
+      // Ссылка Setka: зал и время дня — ровно этот турнир (полсекунды); только зал или только время дня — их список
+      const list = s.hall != null ? await loadHall(s.date, s.hall, { period: s.period }) : await loadPart(s.date, s.period);
       const found = list.filter((t) => matchesLink(t, s));
       if (token !== renderToken) return;
       if (found.length === 1) return go({ date: s.date, t: found[0].id }, { replace: true });

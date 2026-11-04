@@ -2,6 +2,7 @@
 // Setka не разрешает сайтам загружать свои данные напрямую, поэтому страница ходит сюда:
 //   ?date=2026-10-05            — все турниры дня (Setka отвечает 8–15 с)
 //   ?date=2026-10-05&period=2   — турниры одной части суток: Утро, Вечер, Ночь… (1–5 с)
+//   ?date=2026-10-05&location=7 — турниры одного зала за день (Сеул — 7, Токио — 8; около 1 с); можно вместе с period
 //   ?t=63928&date=2026-10-05    — только матчи одного турнира, без статуса и итогов Setka (доли секунды)
 //   ?periods=1                  — список частей суток
 // &more=1 — дополнительный запрос той же загрузки страницы: в статистику посещений не пишется
@@ -24,14 +25,16 @@ export function upstreamFor(params) {
       : null;
   }
   if (!day) return null;
-  if (params.has("period")) {
-    const period = params.get("period");
-    return /^\d{1,2}$/.test(period)
-      ? { url: `${SETKA}/Tournaments/ru?date=${day}&dayPeriod=${period}`, key: `day/${day}/${period}`, date: day, trim: "tournaments" }
-      : null;
-  }
+  const period = params.get("period");
+  const location = params.get("location");
+  if ((period != null && !/^\d{1,2}$/.test(period)) || (location != null && !/^\d{1,4}$/.test(location))) return null;
   // День целиком (страница зарплаты, запасной путь) — как есть: урезать 500 КБ дольше, чем укладывается в лимит Cloudflare
-  return { url: `${SETKA}/Tournaments/ru?date=${day}`, key: `day/${day}`, date: day };
+  if (period == null && location == null) return { url: `${SETKA}/Tournaments/ru?date=${day}`, key: `day/${day}`, date: day };
+  // Часть суток (dayPeriod) и/или один зал (location) — Setka отдаёт их в разы быстрее всего дня
+  const filter = `${period != null ? `&dayPeriod=${period}` : ""}${location != null ? `&location=${location}` : ""}`;
+  return {
+    url: `${SETKA}/Tournaments/ru?date=${day}${filter}`, key: `day/${day}/${period ?? "*"}/${location ?? "*"}`, date: day, trim: "tournaments",
+  };
 }
 
 // --- Только поля, которые читает страница (standings.js, parseTournament) ---
