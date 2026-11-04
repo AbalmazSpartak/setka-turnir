@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=40";
+import { API_URL } from "./config.js?v=41";
 import {
   parseTournaments, parseTournamentMatches, parseLive, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=40";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=40";
-import { toCSV } from "./precedents-csv.js?v=40";
+} from "./standings.js?v=41";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=41";
+import { toCSV } from "./precedents-csv.js?v=41";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=40";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=40";
+} from "./testmode.js?v=41";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=41";
 
 const app = document.getElementById("app");
 
@@ -198,6 +198,15 @@ const today = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
+/**
+ * День Setka, который идёт сейчас: Setka относит турнир ко дню его первого матча (UTC), и ночные турниры доигрываются
+ * до 5:25–5:45 UTC следующего утра. Поэтому день сменяется около 5:00 UTC (7:00 по Киеву зимой), а не в полночь
+ */
+const setkaToday = () => new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10);
+
+/** Идущие матчи показываем на текущем дне Setka и на сегодняшнем по календарю */
+const isCurrentDay = (date) => date === setkaToday() || date === today();
+
 // --- Адрес страницы: ?date=…&hall=…&period=… или ?date=…&t=<id турнира> ---
 
 function state() {
@@ -260,21 +269,41 @@ async function render() {
       if (found.length === 1) return go({ date: s.date, t: found[0].id }, { replace: true });
       app.innerHTML = home(s, { linkMatches: found });
     } else {
-      const date = s.date ?? today();
+      const date = s.date ?? setkaToday();
       app.innerHTML = home({ ...s, date }, { loading: true });
       bind();
       document.title = "Турнир — места Setka Cup";
-      // Идущие матчи — первыми: отдельный запрос, Setka отвечает за доли секунды
-      if (date === today()) loadLive().then((list) => token === renderToken && showLive(list));
+      // Идущие матчи — первыми: отдельный запрос, Setka отвечает за доли секунды,
+      // + текущие матчи из пришедших списков дня (Сеул и Токио — через секунду): быстрый запрос Setka минуту-другую
+      // бывает пустым и тогда, когда матчи идут
+      const liveNow = isCurrentDay(date) ? new Map() : null;
+      const addLive = (items) => {
+        if (!liveNow || token !== renderToken) return;
+        for (const x of items) liveNow.set(x.tournamentId, x);
+        showLive([...liveNow.values()]);
+      };
+      if (liveNow) {
+        loadLive().then((list) => {
+          addLive(list);
+          if (!list.length) setTimeout(() => token === renderToken && loadLive({ fresh: true }).then(addLive), 3000);
+        });
+      }
       // Пришла часть суток — дополняем только список турниров: поле ссылки не трогаем, в нём может быть начатый ввод
-      const tournaments = await loadDay(date, { onPart: (list) => token === renderToken && showDay(date, list, true) });
+      const tournaments = await loadDay(date, {
+        onPart: (list) => {
+          if (token !== renderToken) return;
+          showDay(date, list, true);
+          addLive(liveIn(list, date));
+        },
+      });
       if (token !== renderToken) return;
       showDay(date, tournaments, false);
+      addLive(liveIn(tournaments, date));
       return;
     }
   } catch (error) {
     if (token !== renderToken) return;
-    app.innerHTML = home({ ...s, date: s.date ?? today() }, { message: error.message });
+    app.innerHTML = home({ ...s, date: s.date ?? setkaToday() }, { message: error.message });
   }
   bind();
 }
@@ -912,7 +941,7 @@ function loadingTournament() {
 }
 
 function home(s, { tournaments, linkMatches, loading, message } = {}) {
-  const date = s.date ?? today();
+  const date = s.date ?? setkaToday();
   return `
     <div class="title-row">
       <h1>Турнир</h1>
@@ -941,7 +970,8 @@ function home(s, { tournaments, linkMatches, loading, message } = {}) {
       <div class="day-row row"><span>День</span><input type="date" id="day" value="${esc(date)}"></div>
       <div id="day-status">${dayStatus(tournaments, loading)}</div>
     </div>
-    <div id="live">${date === today() && Date.now() - live.at < LIVE_FRESH ? liveBlock(live.list) : ""}</div>
+    ${state().date == null && date !== today() ? `<p class="note">Ночью — вчерашний день Setka: его ночные турниры ещё идут.</p>` : ""}
+    <div id="live">${isCurrentDay(date) && Date.now() - live.at < LIVE_FRESH ? liveBlock(live.list) : ""}</div>
     ${csvLink()}
     <p class="note"><a href="?help=1" data-action="help-open">📖 Справка</a> — что умеет сайт и как он считает места</p>
     <div id="day-halls">${dayHalls(tournaments, date)}</div>
@@ -979,8 +1009,8 @@ const LIVE_FRESH = 30000;
 /** Последний ответ: list — уже пришёл, at — когда запрошен */
 const live = { at: 0, list: null, request: null };
 
-function loadLive() {
-  if (!live.request || Date.now() - live.at > LIVE_FRESH) {
+function loadLive({ fresh = false } = {}) {
+  if (fresh || !live.request || Date.now() - live.at > LIVE_FRESH) {
     live.at = Date.now();
     live.request = fetchJson({ live: 1 })
       .then((json) => (live.list = parseLive(json)))
@@ -1001,7 +1031,7 @@ function liveBlock(list) {
     <div class="section-title">Идут сейчас</div>
     <div class="card">
       ${rows.map(({ parts, match, day, tournamentId }) => `
-        <button class="tournament row" data-action="open" data-date="${esc(day ?? today())}" data-id="${tournamentId}">
+        <button class="tournament row" data-action="open" data-date="${esc(day ?? setkaToday())}" data-id="${tournamentId}">
           <span class="info">
             <span class="name">${esc(parts.hall)} · ${esc(parts.period)}${parts.division !== "Мужчины" ? ` · ${esc(parts.division)}` : ""}</span><br>
             <span class="sub">${esc([match.player1, match.player2].map((p) => p?.lastName || "?").join(" – "))} · ${esc(liveScore(match).replace("-я", "‑я"))}</span>
@@ -1011,6 +1041,12 @@ function liveBlock(list) {
         </button>`).join("")}
     </div>`;
 }
+
+/** Текущие матчи турниров дня — второй источник для «Идут сейчас» */
+const liveIn = (tournaments, date) => tournaments.flatMap((t) => {
+  const match = t.matches.find(isLive);
+  return match ? [{ tournamentId: t.id, token: t.token, locationId: t.locationId, dayPeriodToken: t.dayPeriodToken, day: date, match }] : [];
+});
 
 function showLive(list) {
   const box = document.getElementById("live");
