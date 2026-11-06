@@ -257,6 +257,8 @@ table.cross th.name.hl { background: var(--pick-solid); }
 .match .score { font-weight: 700; font-variant-numeric: tabular-nums; }
 .match .score.live { color: var(--live); }
 .match .score.wait { color: var(--muted); }
+/* Время матча по расписанию Setka — слева, мелко */
+.match .when { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .match .sets { text-align: center; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; word-spacing: 6px; }
 
 .warn h3 { margin: 0; color: var(--warn); font-size: 15px; }
@@ -405,7 +407,7 @@ td.train-coef { font-size: 13px; color: var(--muted); }
 .train-ratio { font-size: 11px; color: var(--soon); font-weight: 600; }
 
 /* Список матчей: слева игрок — красная точка, справа — синяя */
-.match .line > .p:first-child::before,
+.match .line > .p:not(.right)::before,
 .match .line > .p.right::after {
   content: "";
   display: inline-block;
@@ -416,7 +418,7 @@ td.train-coef { font-size: 13px; color: var(--muted); }
   position: relative;
   top: -1px;
 }
-.match .line > .p:first-child::before { background: #e5484d; margin-right: 6px; }
+.match .line > .p:not(.right)::before { background: #e5484d; margin-right: 6px; }
 .match .line > .p.right::after { background: #3e8ed0; margin-left: 6px; }
 /* Шахматка: точка — с какой стороны в матче был игрок строки */
 .side-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 3px; vertical-align: middle; position: relative; top: -1px; }

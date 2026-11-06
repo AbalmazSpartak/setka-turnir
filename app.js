@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=41";
+import { API_URL } from "./config.js?v=42";
 import {
   parseTournaments, parseTournamentMatches, parseLive, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
-  isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss,
-} from "./standings.js?v=41";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=41";
-import { toCSV } from "./precedents-csv.js?v=41";
+  isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss, setkaToday, SETKA_DAY_START,
+} from "./standings.js?v=42";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=42";
+import { toCSV } from "./precedents-csv.js?v=42";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=41";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=41";
+} from "./testmode.js?v=42";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=42";
 
 const app = document.getElementById("app");
 
@@ -198,11 +198,9 @@ const today = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-/**
- * День Setka, который идёт сейчас: Setka относит турнир ко дню его первого матча (UTC), и ночные турниры доигрываются
- * до 5:25–5:45 UTC следующего утра. Поэтому день сменяется около 5:00 UTC (7:00 по Киеву зимой), а не в полночь
- */
-const setkaToday = () => new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10);
+/** Время матча или начала турнира по часам телефона: «16:25» */
+const clock = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" });
+const timeOf = (iso) => (iso ? clock.format(new Date(iso)) : "");
 
 /** Идущие матчи показываем на текущем дне Setka и на сегодняшнем по календарю */
 const isCurrentDay = (date) => date === setkaToday() || date === today();
@@ -970,7 +968,7 @@ function home(s, { tournaments, linkMatches, loading, message } = {}) {
       <div class="day-row row"><span>День</span><input type="date" id="day" value="${esc(date)}"></div>
       <div id="day-status">${dayStatus(tournaments, loading)}</div>
     </div>
-    ${state().date == null && date !== today() ? `<p class="note">Ночью — вчерашний день Setka: его ночные турниры ещё идут.</p>` : ""}
+    ${state().date == null && date !== today() ? `<p class="note">До ${SETKA_DAY_START} по Киеву — вчерашний день Setka: его ночные турниры ещё идут.</p>` : ""}
     <div id="live">${isCurrentDay(date) && Date.now() - live.at < LIVE_FRESH ? liveBlock(live.list) : ""}</div>
     ${csvLink()}
     <p class="note"><a href="?help=1" data-action="help-open">📖 Справка</a> — что умеет сайт и как он считает места</p>
@@ -1201,7 +1199,7 @@ function tournamentRow(t, date, inHall = null) {
     <button class="tournament row" data-action="open" data-date="${esc(date)}" data-id="${t.id}">
       <span class="info">
         <span class="name">${esc(rowTitle(t, inHall))}</span><br>
-        <span class="sub">${players} ${playersNoun(players)} · сыграно ${played} из ${t.matches.length}</span>
+        <span class="sub">${t.start ? `${timeOf(t.start)} · ` : ""}${players} ${playersNoun(players)} · сыграно ${played} из ${t.matches.length}</span>
       </span>
       ${badge}
       <span class="chevron">›</span>
@@ -1700,6 +1698,7 @@ function matchRow(m, closed, outcomes) {
   return `
     <div class="match row" data-players="${m.player1?.id ?? ""} ${m.player2?.id ?? ""}">
       <div class="line">
+        ${m.start ? `<span class="when">${timeOf(m.start)}</span>` : ""}
         <span class="p pickable ${cls(m.player1)}" ${m.player1 ? `data-action="pick-player" data-player="${m.player1.id}"` : ""}>${esc(m.player1?.lastName ?? "—")}</span>
         <span class="score ${live ? "live" : g ? "" : "wait"}">${score}</span>
         <span class="p right pickable ${cls(m.player2)}" ${m.player2 ? `data-action="pick-player" data-player="${m.player2.id}"` : ""}>${esc(m.player2?.lastName ?? "—")}</span>

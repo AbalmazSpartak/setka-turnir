@@ -49,7 +49,8 @@ const isObject = (o) => o && typeof o === "object" && !Array.isArray(o);
 const trimPlayer = (p) => (isObject(p) ? { id: p.id, firstName: p.firstName, lastName: p.lastName } : p);
 
 /**
- * meta — у матчей без турнира вокруг (?t=, ?live=) ещё турнир, его название, зал, время дня и начало матча:
+ * Время начала матча (startDate) — у всех: страница показывает его в списке матчей.
+ * meta — у матчей без турнира вокруг (?t=, ?live=) ещё турнир, его название, зал и время дня:
  * по ним страница узнаёт часть суток турнира и его день у Setka (ночные турниры Setka относит к предыдущему дню)
  */
 function trimMatch(m, meta) {
@@ -57,13 +58,14 @@ function trimMatch(m, meta) {
   const out = {
     id: m.id, position: m.position, forPositionId: m.forPositionId,
     player1Score: m.player1Score, player2Score: m.player2Score, technicalResult: m.technicalResult, statusId: m.statusId,
+    startDate: m.startDate,
     player1: trimPlayer(m.player1), player2: trimPlayer(m.player2),
     winner: isObject(m.winner) ? { id: m.winner.id } : m.winner,
     setScores: Array.isArray(m.setScores) ? m.setScores.map((s) => (isObject(s) ? { p1Score: s.p1Score, p2Score: s.p2Score } : s)) : m.setScores,
   };
   if (meta) {
     Object.assign(out, {
-      tournamentId: m.tournamentId, tournamentName: m.tournamentName, locationId: m.locationId, dayPeriodToken: m.dayPeriodToken, startDate: m.startDate,
+      tournamentId: m.tournamentId, tournamentName: m.tournamentName, locationId: m.locationId, dayPeriodToken: m.dayPeriodToken,
     });
   }
   return out;
@@ -86,7 +88,7 @@ function trimResult(r) {
 function trimTournament(t) {
   if (!t || typeof t !== "object") return t;
   return {
-    id: t.id, token: t.token, locationId: t.locationId, dayPeriodToken: t.dayPeriodToken, statusCode: t.statusCode,
+    id: t.id, token: t.token, locationId: t.locationId, dayPeriodToken: t.dayPeriodToken, statusCode: t.statusCode, startDate: t.startDate,
     result: trimResult(t.result),
     matches: Array.isArray(t.matches) ? t.matches.map((m) => trimMatch(m, false)) : t.matches,
   };
@@ -149,7 +151,7 @@ export default {
     // Setka сама за Cloudflare, поэтому cf.cacheTtl на её запросе не действует — нужен свой кэш
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     const ttl = target.ttl ?? (target.date && target.date < yesterday ? 3600 : 0);
-    const key = new Request(`https://setka-turnir.cache/v3/${target.key}`);
+    const key = new Request(`https://setka-turnir.cache/v4/${target.key}`);
     let body = ttl ? await caches.default.match(key) : undefined;
     const hit = Boolean(body);
     if (!body) {

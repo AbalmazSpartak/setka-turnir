@@ -55,8 +55,40 @@ export function parseTournamentMatches(id, json) {
  * к предыдущему дню. null — у матчей нет времени начала
  */
 function setkaDay(matches) {
-  const starts = matches.map((m) => m?.startDate).filter((s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}T/.test(s)).sort();
+  const starts = matches.map((m) => m?.startDate).filter(isTime).sort();
   return starts.length ? starts[0].slice(0, 10) : null;
+}
+
+/** Время из Setka: «2026-11-05T14:25:00.000Z» */
+const isTime = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}T/.test(s);
+
+/** Часы по Киеву: Setka ведёт расписание по ним — и летом, и зимой утро начинается в 7:25 */
+const KYIV = (() => {
+  for (const timeZone of ["Europe/Kyiv", "Europe/Kiev"]) {
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+      });
+    } catch { /* старый браузер не знает это название */ }
+  }
+  return null;
+})();
+
+/** С этого времени по Киеву идёт новый день Setka: начинаются первые утренние матчи */
+export const SETKA_DAY_START = "7:25";
+
+/**
+ * День Setka, который идёт сейчас. Новый день начинается с первых утренних матчей — в 7:25 по Киеву;
+ * до этого идёт вчерашний: его ночные турниры доигрываются до 7:25–7:45. Проверено по расписанию
+ * октября–ноября 2026 (летом 4:25 UTC, зимой 5:25 UTC)
+ */
+export function setkaToday(now = Date.now()) {
+  const [h, min] = SETKA_DAY_START.split(":").map(Number);
+  const shift = (h * 60 + min) * 60000;
+  if (!KYIV) return new Date(now + 2 * 3600000 - shift).toISOString().slice(0, 10); // как зимой: Киев = UTC+2
+  const p = Object.fromEntries(KYIV.formatToParts(now).map((x) => [x.type, x.value]));
+  const kyivClock = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute));
+  return new Date(kyivClock - shift).toISOString().slice(0, 10);
 }
 
 /**
@@ -91,6 +123,7 @@ function parseMatch(m) {
     technical: int(m.technicalResult) !== 0,
     winnerId: m.winner?.id ?? null,
     statusId: m.statusId == null ? null : int(m.statusId),
+    start: isTime(m.startDate) ? m.startDate : null,
     setScores,
   };
 }
@@ -103,6 +136,8 @@ function parseTournament(t) {
     locationId: int(t.locationId),
     dayPeriodToken: int(t.dayPeriodToken),
     statusCode: t.statusCode ?? "",
+    /** Начало турнира по расписанию Setka (UTC); у турнира по одним матчам — начало первого матча */
+    start: isTime(t.startDate) ? t.startDate : matches.map((m) => m.start).filter(Boolean).sort()[0] ?? null,
     matches,
     officialPlaces: officialPlaces(t.result),
     setka: setkaResult(t.result),
