@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=43";
+import { API_URL } from "./config.js?v=44";
 import {
   parseTournaments, parseTournamentMatches, parseLive, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss, setkaToday, SETKA_DAY_START,
-} from "./standings.js?v=43";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=43";
-import { toCSV } from "./precedents-csv.js?v=43";
+} from "./standings.js?v=44";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=44";
+import { toCSV } from "./precedents-csv.js?v=44";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=43";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=43";
+} from "./testmode.js?v=44";
+import { PAY, payroll, playerName, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=44";
 
 const app = document.getElementById("app");
 
@@ -211,7 +211,7 @@ function state() {
   const p = new URLSearchParams(location.search);
   const int = (name) => (p.has(name) ? Number.parseInt(p.get(name), 10) : null);
   return { date: p.get("date"), hall: int("hall"), period: int("period"), id: int("t"), test: p.get("test"), d: p.get("d"), stats: p.get("stats"), q: p.get("q") ?? "", help: p.has("help"),
-    pay: p.has("pay"), from: p.get("from"), to: p.get("to"), train: p.get("train") };
+    pay: p.has("pay"), player: int("player"), from: p.get("from"), to: p.get("to"), train: p.get("train") };
 }
 
 /** Сколько шагов назад внутри страницы — чтобы «Назад» не уводил с сайта */
@@ -613,19 +613,27 @@ function payPeriod(s) {
   return lastPayoutPeriod(today());
 }
 
+/** Чья зарплата: свой игрок (с выплатами) или любой по ссылке ?pay=1&player=<id Setka> — только начисленное */
+function payPlayer(s) {
+  const id = Number.isInteger(s.player) && s.player > 0 ? s.player : PAY.playerId;
+  return { id, own: id === PAY.playerId, name: id === PAY.playerId ? PAY.playerName : null };
+}
+
 async function renderPay(s, token) {
   const period = payPeriod(s);
+  const player = payPlayer(s);
   const days = daysBetween(period.from, period.to).filter((d) => d <= today());
-  app.innerHTML = payView(period, null);
+  app.innerHTML = payView(period, null, null, player);
   bind();
   // Много дней сразу — каждый одним запросом, а не по частям суток: иначе Setka получила бы десятки запросов
   const load = (list) => Promise.all(list.map(async (date) => ({ date, tournaments: await loadDay(date, { whole: true }) })));
-  const last = lastPayout();
+  const last = player.own ? lastPayout() : null;
   const unpaidDays = last ? daysBetween(last.unpaidFrom, today()) : [];
   const [loaded, unpaid] = await Promise.all([load(days), load(unpaidDays)]);
   if (token !== renderToken) return;
-  app.innerHTML = payView(period, payroll(loaded), last && { last, result: payroll(unpaid) });
-  document.title = "Зарплата — Турнир";
+  player.name ??= playerName(loaded, player.id);
+  app.innerHTML = payView(period, payroll(loaded, player.id), last && { last, result: payroll(unpaid) }, player);
+  document.title = `Зарплата${player.own ? "" : ` · ${player.name ?? player.id}`} — Турнир`;
 }
 
 /** «Ещё не оплачено» после последней записанной выплаты и список пришедших выплат со сверкой */
@@ -656,7 +664,7 @@ function payoutsBlock(unpaid) {
     </details>`;
 }
 
-function payView(period, result, unpaid = null) {
+function payView(period, result, unpaid = null, player = payPlayer({})) {
   const current = periodFor(today());
   const isCurrent = period.from === current.from && period.to === current.to;
   const title = period.payout
@@ -676,7 +684,8 @@ function payView(period, result, unpaid = null) {
       <h2>💰 Зарплата</h2>
       <div class="side end"></div>
     </div>
-    <p class="tournament-date">${esc(PAY.playerName)}</p>
+    <p class="tournament-date">${esc(player.name ?? (result ? `Игрок №${player.id} — в эти дни не играл` : `Игрок №${player.id}`))}</p>
+    ${player.own ? "" : `<p class="note">Расчёт по тем же ставкам. Выплат этого игрока сайт не знает — здесь только начисленное.</p>`}
     <div class="card pad pay-period">
       <div class="pay-nav">
         <button class="ghost icon" data-action="pay-prev" aria-label="Предыдущая выплата">‹</button>
@@ -1298,6 +1307,7 @@ function tournamentView(t, date = null, setkaState = null) {
       <div class="card cross-wrap">${crossTable(s, closed, outcomes)}</div>
       <p class="note">Нажмите на игрока — его встречи подсветятся здесь и в списке матчей. Нажмите ещё раз, чтобы снять.</p>
       <p class="note">Победа — 2 очка, поражение — 1, техническое поражение — 0. При равенстве мячи сравниваются по соотношению (выиграно ÷ проиграно) — по правилам ITTF, как у Setka.</p>
+      <p class="note">💰 Зарплата игрока: ${[...s.rows].sort((a, b) => a.groupPlace - b.groupPlace).map((r) => `<a class="accent-link" href="?pay=1&player=${r.player.id}" data-action="pay-player" data-player="${r.player.id}">${esc(r.player.lastName)}</a>`).join(" · ")}</p>
       ${setkaNote(t, s, outcomes)}
       ${s.ties.length ? `
         <div class="section-title">Почему так</div>
@@ -1841,11 +1851,16 @@ async function onAction(event) {
     case "pay-open":
       go({ pay: 1 });
       break;
+    case "pay-player":
+      go({ pay: 1, player: el.dataset.player });
+      window.scrollTo({ top: 0 });
+      break;
     case "pay-prev":
     case "pay-next": {
-      const p = payPeriod(state());
+      const s = state();
+      const p = payPeriod(s);
       const next = el.dataset.action === "pay-prev" ? periodFor(addDays(p.from, -1)) : periodFor(addDays(p.to, 1));
-      go({ pay: 1, from: next.from, to: next.to }, { replace: true });
+      go({ pay: 1, player: s.player, from: next.from, to: next.to }, { replace: true });
       break;
     }
     case "pay-custom": {
@@ -1853,7 +1868,7 @@ async function onAction(event) {
       const to = document.getElementById("pay-to").value;
       if (!from || !to || from > to) break;
       const limit = addDays(from, PAY.maxDays - 1);
-      go({ pay: 1, from, to: to > limit ? limit : to }, { replace: true });
+      go({ pay: 1, player: state().player, from, to: to > limit ? limit : to }, { replace: true });
       break;
     }
     case "help-open":

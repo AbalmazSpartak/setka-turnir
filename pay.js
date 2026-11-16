@@ -1,6 +1,6 @@
 // Зарплата игрока за период: выход на турнир (ставка по времени дня) + каждая победа.
 // Пока только для одного игрока; ставки — от него (10.2026)
-import { game, isFinished, isNotStarted, tournamentTitle } from "./standings.js?v=43";
+import { game, isFinished, isNotStarted, tournamentTitle } from "./standings.js?v=44";
 
 export const PAY = {
   playerId: 1997,
@@ -85,18 +85,18 @@ export function daysBetween(from, to) {
 
 const periodOf = (t) => tournamentTitle(t).split(" ")[1] ?? "";
 
-/** Расчёт по турнирам дней: строки по турнирам и итог */
-export function payroll(days) {
+/** Расчёт по турнирам дней для игрока (по умолчанию — свой): строки по турнирам и итог. excluded — только у своего */
+export function payroll(days, playerId = PAY.playerId) {
   const rows = [];
   for (const { date, tournaments } of days) {
     for (const t of tournaments) {
-      if (!t.matches.some((m) => m.player1?.id === PAY.playerId || m.player2?.id === PAY.playerId)) continue;
-      if (isNotStarted(t) || PAY.excluded.includes(t.id)) continue;
+      if (!t.matches.some((m) => m.player1?.id === playerId || m.player2?.id === playerId)) continue;
+      if (isNotStarted(t) || (playerId === PAY.playerId && PAY.excluded.includes(t.id))) continue;
       let wins = 0, walkoverWins = 0, losses = 0;
       for (const m of t.matches) {
         const g = game(m);
-        if (!g || g.doubleLoss || (g.p1 !== PAY.playerId && g.p2 !== PAY.playerId)) continue;
-        if (g.winner !== PAY.playerId) losses++;
+        if (!g || g.doubleLoss || (g.p1 !== playerId && g.p2 !== playerId)) continue;
+        if (g.winner !== playerId) losses++;
         else if (g.walkover) walkoverWins++;
         else wins++;
       }
@@ -121,6 +121,19 @@ export function payroll(days) {
     losses: sum("losses"),
     total: sum("total"),
   };
+}
+
+/** Имя игрока из матчей загруженных дней: «Фамилия Имя»; null — в эти дни не играл */
+export function playerName(days, playerId) {
+  for (const { tournaments } of days) {
+    for (const t of tournaments) {
+      for (const m of t.matches) {
+        const p = [m.player1, m.player2].find((x) => x?.id === playerId);
+        if (p) return `${p.lastName} ${p.firstName}`.trim();
+      }
+    }
+  }
+  return null;
 }
 
 /** Последняя записанная выплата и с какого дня турниры ещё не оплачены */
