@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=44";
+import { API_URL } from "./config.js?v=45";
 import {
   parseTournaments, parseTournamentMatches, parseLive, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss, setkaToday, SETKA_DAY_START,
-} from "./standings.js?v=44";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=44";
-import { toCSV } from "./precedents-csv.js?v=44";
+} from "./standings.js?v=45";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=45";
+import { toCSV } from "./precedents-csv.js?v=45";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=44";
-import { PAY, payroll, playerName, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=44";
+} from "./testmode.js?v=45";
+import { PAY, payroll, playerName, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=45";
 
 const app = document.getElementById("app");
 
@@ -1307,7 +1307,6 @@ function tournamentView(t, date = null, setkaState = null) {
       <div class="card cross-wrap">${crossTable(s, closed, outcomes)}</div>
       <p class="note">Нажмите на игрока — его встречи подсветятся здесь и в списке матчей. Нажмите ещё раз, чтобы снять.</p>
       <p class="note">Победа — 2 очка, поражение — 1, техническое поражение — 0. При равенстве мячи сравниваются по соотношению (выиграно ÷ проиграно) — по правилам ITTF, как у Setka.</p>
-      <p class="note">💰 Зарплата игрока: ${[...s.rows].sort((a, b) => a.groupPlace - b.groupPlace).map((r) => `<a class="accent-link" href="?pay=1&player=${r.player.id}" data-action="pay-player" data-player="${r.player.id}">${esc(r.player.lastName)}</a>`).join(" · ")}</p>
       ${setkaNote(t, s, outcomes)}
       ${s.ties.length ? `
         <div class="section-title">Почему так</div>
