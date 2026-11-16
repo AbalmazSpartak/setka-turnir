@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=45";
+import { API_URL } from "./config.js?v=46";
 import {
   parseTournaments, parseTournamentMatches, parseLive, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss, setkaToday, SETKA_DAY_START,
-} from "./standings.js?v=45";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=45";
-import { toCSV } from "./precedents-csv.js?v=45";
+} from "./standings.js?v=46";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=46";
+import { toCSV } from "./precedents-csv.js?v=46";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=45";
-import { PAY, payroll, playerName, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=45";
+} from "./testmode.js?v=46";
+import { PAY, payroll, playerName, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=46";
 
 const app = document.getElementById("app");
 
@@ -266,6 +266,7 @@ async function render() {
       if (token !== renderToken) return;
       if (found.length === 1) return go({ date: s.date, t: found[0].id }, { replace: true });
       app.innerHTML = home(s, { linkMatches: found });
+      rateTournaments(found);
     } else {
       const date = s.date ?? setkaToday();
       app.innerHTML = home({ ...s, date }, { loading: true });
@@ -1007,6 +1008,52 @@ function showDay(date, tournaments, loading) {
   status.innerHTML = dayStatus(tournaments, loading);
   list.innerHTML = dayHalls(tournaments, date);
   list.querySelectorAll("[data-action]").forEach((el) => el.addEventListener("click", onAction));
+  rateTournaments(tournaments);
+}
+
+// --- Средний рейтинг состава: рейтинг Setka игроков турнира. Приходит после списка — посредник ?ratings= ---
+
+/** id игрока → рейтинг Setka (null — рейтинга нет); загрузки по 20 игроков, одновременные — одна */
+const ratings = new Map();
+const ratingRequests = new Map();
+const RATINGS_BATCH = 20;
+
+function loadRatings(ids) {
+  const missing = [...new Set(ids)].filter((id) => !ratings.has(id) && !ratingRequests.has(id)).sort((a, b) => a - b);
+  for (let i = 0; i < missing.length; i += RATINGS_BATCH) {
+    const batch = missing.slice(i, i + RATINGS_BATCH);
+    const request = fetchJson({ ratings: batch.join(",") })
+      .then((json) => {
+        for (const id of batch) {
+          const value = Number(json?.[id]);
+          ratings.set(id, json?.[id] != null && Number.isFinite(value) && value > 0 ? value : null);
+        }
+      })
+      .catch(() => {}) // не загрузились — строки без рейтинга, при следующем показе дня попробуем снова
+      .finally(() => batch.forEach((id) => ratingRequests.delete(id)));
+    batch.forEach((id) => ratingRequests.set(id, request));
+  }
+  return Promise.all(new Set(ids.map((id) => ratingRequests.get(id)).filter(Boolean)));
+}
+
+const playerIds = (t) => [...new Set(t.matches.flatMap((m) => [m.player1?.id, m.player2?.id]).filter((x) => x != null))];
+
+/** « · рейтинг 45,2» — среднее по игрокам с рейтингом; пусто, пока рейтинги не пришли или их ни у кого нет */
+function ratingText(ids) {
+  if (!ids.length || ids.some((id) => !ratings.has(id))) return "";
+  const values = ids.map((id) => ratings.get(id)).filter((v) => v != null);
+  if (!values.length) return "";
+  const average = values.reduce((a, b) => a + b, 0) / values.length;
+  return ` · рейтинг ${average.toLocaleString("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`;
+}
+
+function rateTournaments(tournaments) {
+  if (!tournaments?.length) return;
+  loadRatings(tournaments.flatMap(playerIds)).then(() => {
+    for (const el of app.querySelectorAll(".tournament.row .rating[data-players]")) {
+      el.textContent = ratingText(el.dataset.players.split(",").map(Number));
+    }
+  });
 }
 
 // --- «Идут сейчас»: текущий матч каждого играющего зала — приходит раньше списка дня ---
@@ -1199,7 +1246,8 @@ function pinOrder(name) {
 }
 
 function tournamentRow(t, date, inHall = null) {
-  const players = new Set(t.matches.flatMap((m) => [m.player1?.id, m.player2?.id]).filter((x) => x != null)).size;
+  const ids = playerIds(t);
+  const players = ids.length;
   const played = t.matches.filter((m) => m.winnerId != null).length;
   const badge = isNotStarted(t)
     ? `<span class="badge soon">скоро</span>`
@@ -1208,7 +1256,7 @@ function tournamentRow(t, date, inHall = null) {
     <button class="tournament row" data-action="open" data-date="${esc(date)}" data-id="${t.id}">
       <span class="info">
         <span class="name">${esc(rowTitle(t, inHall))}</span><br>
-        <span class="sub">${t.start ? `${timeOf(t.start)} · ` : ""}${players} ${playersNoun(players)} · сыграно ${played} из ${t.matches.length}</span>
+        <span class="sub">${t.start ? `${timeOf(t.start)} · ` : ""}${players} ${playersNoun(players)} · сыграно ${played} из ${t.matches.length}<span class="rating" data-players="${ids.join(",")}">${ratingText(ids)}</span></span>
       </span>
       ${badge}
       <span class="chevron">›</span>

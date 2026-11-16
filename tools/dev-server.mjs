@@ -3,7 +3,7 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
-import { upstreamFor, trimText } from "../worker/worker.js";
+import { upstreamFor, trimText, ratingsFor } from "../worker/worker.js";
 
 const root = new URL("..", import.meta.url).pathname;
 const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".webp": "image/webp", ".json": "application/json", ".webmanifest": "application/manifest+json" };
@@ -13,6 +13,10 @@ createServer(async (req, res) => {
   if (url.pathname === "/api") {
     const target = upstreamFor(url.searchParams);
     if (!target) return res.writeHead(400).end();
+    if (target.ratings) {
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      return res.end(JSON.stringify(await ratingsFor(target.ratings)));
+    }
     const upstream = await fetch(target.url);
     const text = await upstream.text();
     res.writeHead(upstream.status, { "Content-Type": "application/json; charset=utf-8" });

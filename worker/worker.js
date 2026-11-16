@@ -6,6 +6,7 @@
 //   ?t=63928&date=2026-10-05    — только матчи одного турнира, без статуса и итогов Setka (доли секунды)
 //   ?periods=1                  — список частей суток
 //   ?live=1                     — матчи, которые идут прямо сейчас: по одному на играющий зал (доли секунды)
+//   ?ratings=670,1997,…         — рейтинг Setka игроков (до 20): { "670": 57.4, … }, копия на сутки
 // &more=1 — дополнительный запрос той же загрузки страницы: в статистику посещений не пишется
 const SETKA = "https://tabletennis.setkacup.com/api";
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
@@ -20,6 +21,12 @@ export function upstreamFor(params) {
   const day = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
   if (params.has("periods")) return { url: `${SETKA}/DayPeriods/ru`, key: "periods", date: null, ttl: 86400 };
   if (params.has("live")) return { url: `${SETKA}/Matches/widget/ru`, key: "live", date: null, ttl: 0, trim: "matches" };
+  if (params.has("ratings")) {
+    const ids = [...new Set(params.get("ratings").split(","))].sort();
+    return ids.length && ids.length <= MAX_RATINGS && ids.every((id) => /^\d{1,9}$/.test(id))
+      ? { ratings: ids, key: `ratings/${ids.join(",")}`, date: null, ttl: 86400 }
+      : null;
+  }
   if (params.has("t")) {
     const id = params.get("t");
     return /^\d{1,9}$/.test(id)
@@ -37,6 +44,40 @@ export function upstreamFor(params) {
   return {
     url: `${SETKA}/Tournaments/ru?date=${day}${filter}`, key: `day/${day}/${period ?? "*"}/${location ?? "*"}`, date: day, trim: "tournaments",
   };
+}
+
+// --- Рейтинги игроков ---
+// Setka отдаёт рейтинг только в карточке игрока (/Players/ru/<id>) — вместе со всей историей его турниров, до 200 КБ.
+// Рейтинг стоит в самом начале: читаем первые килобайты и обрываем загрузку — мало трафика и работы для Cloudflare
+
+const MAX_RATINGS = 20;
+
+async function ratingOf(id) {
+  try {
+    const response = await fetch(`${SETKA}/Players/ru/${id}`);
+    if (!response.ok || !response.body) return null;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    let match = null;
+    while (!match && text.length < 8000) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      match = text.match(/"ratingSc":(null|-?[\d.]+)[,}]/);
+    }
+    reader.cancel().catch(() => {});
+    const rating = match && match[1] !== "null" ? Number(match[1]) : null;
+    return Number.isFinite(rating) ? rating : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Рейтинги Setka игроков: { id: число или null } */
+export async function ratingsFor(ids) {
+  const values = await Promise.all(ids.map(ratingOf));
+  return Object.fromEntries(ids.map((id, i) => [id, values[i]]));
 }
 
 // --- Только поля, которые читает страница (standings.js, parseTournament) ---
@@ -143,7 +184,7 @@ export default {
       });
     }
 
-    if (!params.has("more") && !params.has("periods") && !params.has("live")) ctx.waitUntil(recordVisit(env, request, target.date ?? ""));
+    if (!params.has("more") && !params.has("periods") && !params.has("live") && !params.has("ratings")) ctx.waitUntil(recordVisit(env, request, target.date ?? ""));
 
     // Сегодня и вчера (ночные турниры доигрывают после полуночи) — без копии, чтобы счёт идущих матчей был свежим;
     // дни раньше уже закрыты — временная копия на час в кэше Cloudflare (Setka отвечает 10 с и дольше)
@@ -154,6 +195,10 @@ export default {
     const key = new Request(`https://setka-turnir.cache/v4/${target.key}`);
     let body = ttl ? await caches.default.match(key) : undefined;
     const hit = Boolean(body);
+    if (!body && target.ratings) {
+      body = new Response(JSON.stringify(await ratingsFor(target.ratings)), { headers: { ...JSON_HEADERS, "Cache-Control": `max-age=${ttl}` } });
+      ctx.waitUntil(caches.default.put(key, body.clone()));
+    }
     if (!body) {
       const upstream = await fetch(target.url);
       if (!upstream.ok) {
