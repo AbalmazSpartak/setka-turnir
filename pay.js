@@ -1,6 +1,6 @@
 // Зарплата игрока за период: выход на турнир (ставка по времени дня) + каждая победа.
 // Пока только для одного игрока; ставки — от него (10.2026)
-import { game, isFinished, isNotStarted, tournamentTitle } from "./standings.js?v=42";
+import { game, isFinished, isNotStarted, tournamentTitle } from "./standings.js?v=43";
 
 export const PAY = {
   playerId: 1997,
@@ -16,7 +16,7 @@ export const PAY = {
   payoutDays: [1, 8, 15, 22, 29],
   /**
    * Пришедшие выплаты: день, сумма и по какой день турниров она закрыла (upTo), accrued — начислено за эти турниры.
-   * Сверено с турнирами 12.10.2026; новые выплаты дописываются сюда
+   * Сверено с турнирами 12.10.2026 и 16.11.2026; новые выплаты дописываются сюда
    */
   payouts: [
     { date: "2026-08-04", amount: 2480.53, upTo: "2026-08-02", accrued: null },
@@ -30,7 +30,16 @@ export const PAY = {
     { date: "2026-09-22", amount: 6844.60, upTo: "2026-09-21", accrued: 6840 },
     { date: "2026-09-29", amount: 9205.74, upTo: "2026-09-28", accrued: 9200 },
     { date: "2026-10-02", amount: 2241.73, upTo: "2026-09-30", accrued: 2240 },
+    { date: "2026-10-12", amount: 9444.54, upTo: "2026-10-07", accrued: 9440 },
+    { date: "2026-10-15", amount: 6784.90, upTo: "2026-10-14", accrued: 6780 },
+    { date: "2026-10-23", amount: 4722.27, upTo: "2026-10-21", accrued: 4720 },
+    { date: "2026-11-02", amount: 1774.08, upTo: "2026-10-31", accrued: 1770 },
+    /** Два перевода (3208.87 + 4841.67); 1194 из них — за дорогу, сверх турниров (6840) */
+    { date: "2026-11-10", amount: 8050.54, upTo: "2026-11-07", accrued: 6840 + 1194 },
+    { date: "2026-11-16", amount: 8857.49, upTo: "2026-11-14", accrued: 8850 },
   ],
+  /** Турниры, которые не оплачиваются и не считаются (id Setka): ночь Токио 20–21.10.2026 — по словам игрока */
+  excluded: [63929],
   /** Свои даты — не длиннее, чтобы не грузить у Setka слишком много дней */
   maxDays: 62,
 };
@@ -82,7 +91,7 @@ export function payroll(days) {
   for (const { date, tournaments } of days) {
     for (const t of tournaments) {
       if (!t.matches.some((m) => m.player1?.id === PAY.playerId || m.player2?.id === PAY.playerId)) continue;
-      if (isNotStarted(t)) continue;
+      if (isNotStarted(t) || PAY.excluded.includes(t.id)) continue;
       let wins = 0, walkoverWins = 0, losses = 0;
       for (const m of t.matches) {
         const g = game(m);

@@ -1,14 +1,14 @@
-import { API_URL } from "./config.js?v=42";
+import { API_URL } from "./config.js?v=43";
 import {
   parseTournaments, parseTournamentMatches, parseLive, standings, parseLink, matchesLink, tournamentTitle, isFinished, isNotStarted,
   isLive, liveScore, game, fullName, playersNoun, setkaDifference, isDoubleLoss, setkaToday, SETKA_DAY_START,
-} from "./standings.js?v=42";
-import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=42";
-import { toCSV } from "./precedents-csv.js?v=42";
+} from "./standings.js?v=43";
+import { SITUATIONS, detectSituations, setkaLink, trainLevel } from "./situations.js?v=43";
+import { toCSV } from "./precedents-csv.js?v=43";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
-} from "./testmode.js?v=42";
-import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=42";
+} from "./testmode.js?v=43";
+import { PAY, payroll, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=43";
 
 const app = document.getElementById("app");
 
