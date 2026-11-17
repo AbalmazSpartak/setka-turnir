@@ -7,6 +7,8 @@
 //   ?periods=1                  — список частей суток
 //   ?live=1                     — матчи, которые идут прямо сейчас: по одному на играющий зал (доли секунды)
 //   ?ratings=670,1997,…         — рейтинг Setka игроков (до 20): { "670": 57.4, … }, копия на сутки
+//   ?history=1997,2949,…&date=2026-11-05 — рейтинг Setka игроков (до 20) накануне дня и в конце дня:
+//                               { "1997": { before, after }, … } (Setka отвечает 15–20 с; прошлые дни — копия на месяц)
 // &more=1 — дополнительный запрос той же загрузки страницы: в статистику посещений не пишется
 const SETKA = "https://tabletennis.setkacup.com/api";
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
@@ -26,6 +28,12 @@ export function upstreamFor(params) {
     return ids.length && ids.length <= MAX_RATINGS && ids.every((id) => /^\d{1,9}$/.test(id))
       ? { ratings: ids, key: `ratings/${ids.join(",")}`, date: null, ttl: 86400 }
       : null;
+  }
+  if (params.has("history")) {
+    const ids = [...new Set(params.get("history").split(","))].sort();
+    if (!day || !ids.length || ids.length > MAX_RATINGS || !ids.every((id) => /^\d{1,9}$/.test(id))) return null;
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    return { history: { ids: ids.map(Number), day }, key: `history/${day}/${ids.join(",")}`, date: null, ttl: day < yesterday ? 2592000 : 600 };
   }
   if (params.has("t")) {
     const id = params.get("t");
@@ -78,6 +86,43 @@ async function ratingOf(id) {
 export async function ratingsFor(ids) {
   const values = await Promise.all(ids.map(ratingOf));
   return Object.fromEntries(ids.map((id, i) => [id, values[i]]));
+}
+
+// --- Рейтинг игроков на дату: страница Setka «Рейтинг на дату» — все 3000 игроков одним ответом (840 КБ, 15–20 с).
+// Ответ целиком запоминается (прошлые дни — на месяц), нужные игроки ищутся в тексте без разбора JSON:
+// разбор 840 КБ не уложился бы в лимит Cloudflare 10 мс
+
+const dayBefore = (iso) => new Date(Date.parse(`${iso}T12:00:00Z`) - 86400000).toISOString().slice(0, 10);
+
+async function snapshotText(date, ctx) {
+  const key = new Request(`https://setka-turnir.cache/v4/snapshot/${date}`);
+  const cache = globalThis.caches?.default; // нет у локального посредника tools/dev-server.mjs
+  const cached = await cache?.match(key);
+  if (cached) return cached.text();
+  const response = await fetch(`${SETKA}/Players/ru/rating?date=${date}&page=1`);
+  if (!response.ok) return null;
+  const text = await response.text();
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const ttl = date < yesterday ? 2592000 : 600;
+  if (cache && text.includes('"ratingSc"')) ctx?.waitUntil(cache.put(key, new Response(text, { headers: { "Cache-Control": `max-age=${ttl}` } })));
+  return text;
+}
+
+/** Рейтинг игрока в тексте ответа Setka: {"id":1997,…,"ratingSc":"37.9",…} */
+function ratingInText(text, id) {
+  if (!text) return null;
+  const at = text.indexOf(`{"id":${id},`);
+  if (at < 0) return null;
+  const end = text.indexOf("}", at);
+  const match = text.slice(at, end).match(/"ratingSc":"?(-?[\d.]+)/);
+  const value = match ? Number(match[1]) : NaN;
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** Рейтинг Setka игроков накануне дня (до его турниров) и на этот день (после): { id: { before, after } } */
+export async function historyFor({ ids, day }, ctx) {
+  const [before, after] = await Promise.all([snapshotText(dayBefore(day), ctx), snapshotText(day, ctx)]);
+  return Object.fromEntries(ids.map((id) => [id, { before: ratingInText(before, id), after: ratingInText(after, id) }]));
 }
 
 // --- Только поля, которые читает страница (standings.js, parseTournament) ---
@@ -184,7 +229,7 @@ export default {
       });
     }
 
-    if (!params.has("more") && !params.has("periods") && !params.has("live") && !params.has("ratings")) ctx.waitUntil(recordVisit(env, request, target.date ?? ""));
+    if (!params.has("more") && !params.has("periods") && !params.has("live") && !params.has("ratings") && !params.has("history")) ctx.waitUntil(recordVisit(env, request, target.date ?? ""));
 
     // Сегодня и вчера (ночные турниры доигрывают после полуночи) — без копии, чтобы счёт идущих матчей был свежим;
     // дни раньше уже закрыты — временная копия на час в кэше Cloudflare (Setka отвечает 10 с и дольше)
@@ -195,9 +240,12 @@ export default {
     const key = new Request(`https://setka-turnir.cache/v4/${target.key}`);
     let body = ttl ? await caches.default.match(key) : undefined;
     const hit = Boolean(body);
-    if (!body && target.ratings) {
-      body = new Response(JSON.stringify(await ratingsFor(target.ratings)), { headers: { ...JSON_HEADERS, "Cache-Control": `max-age=${ttl}` } });
-      ctx.waitUntil(caches.default.put(key, body.clone()));
+    if (!body && (target.ratings || target.history)) {
+      const json = target.ratings ? await ratingsFor(target.ratings) : await historyFor(target.history, ctx);
+      body = new Response(JSON.stringify(json), { headers: { ...JSON_HEADERS, "Cache-Control": `max-age=${ttl}` } });
+      // Setka не ответила (у всех пусто) — не запоминаем
+      const empty = target.history && Object.values(json).every((r) => r.before == null && r.after == null);
+      if (!empty) ctx.waitUntil(caches.default.put(key, body.clone()));
     }
     if (!body) {
       const upstream = await fetch(target.url);

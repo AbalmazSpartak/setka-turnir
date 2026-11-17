@@ -16,7 +16,7 @@ export function matchPoints(me, opp, win) {
 }
 
 /** Конец турнира: начало последнего матча по расписанию + 25 минут (Setka считает турнир в день его окончания, UTC) */
-const endOf = (t) => {
+export const endOf = (t) => {
   const last = t.matches.map((m) => m.start).filter(Boolean).sort().at(-1);
   return last ? new Date(Date.parse(last) + 25 * 60000).toISOString() : null;
 };
@@ -25,7 +25,7 @@ const endOf = (t) => {
  * Рейтинги после турниров: base — { date, missed, ratings } (rating-base.json), tournaments — разобранные турниры
  * (standings.js) за дни с base.date. Берутся турниры, закончившиеся после base.date, и пропущенные Setka (missed).
  * Идущий турнир — по сыгранным матчам. Игрок без рейтинга в base не пересчитывается (и матчи с ним — тоже).
- * Возвращает Map id → рейтинг
+ * Возвращает { current: Map id → рейтинг сейчас, byTournament: Map id турнира → Map id игрока → { before, after } }
  */
 export function recalcRatings(base, tournaments) {
   const current = new Map(Object.entries(base.ratings).map(([id, r]) => [Number(id), r]));
@@ -35,6 +35,7 @@ export function recalcRatings(base, tournaments) {
     .map((t) => ({ t, end: endOf(t) }))
     .filter(({ t, end }) => end && (end.slice(0, 10) > base.date || missed.has(t.id)))
     .sort((a, b) => a.end.localeCompare(b.end));
+  const byTournament = new Map();
   for (const { t } of list) {
     // Изменения копятся и применяются после турнира: все его матчи — от рейтингов до турнира
     const change = new Map();
@@ -46,7 +47,15 @@ export function recalcRatings(base, tournaments) {
       change.set(a, (change.get(a) ?? 0) + matchPoints(ra, rb, m.winnerId === a));
       change.set(b, (change.get(b) ?? 0) + matchPoints(rb, ra, m.winnerId === b));
     }
+    const players = new Map();
+    for (const m of t.matches) {
+      for (const p of [m.player1, m.player2]) {
+        const r = p && current.get(p.id);
+        if (r != null) players.set(p.id, { before: r, after: r + (change.get(p.id) ?? 0) });
+      }
+    }
+    byTournament.set(t.id, players);
     for (const [id, v] of change) current.set(id, current.get(id) + v);
   }
-  return current;
+  return { current, byTournament };
 }

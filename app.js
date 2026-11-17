@@ -8,7 +8,7 @@ import { toCSV } from "./precedents-csv.js?v=46";
 import {
   RESULTS, MIN_PLAYERS, MAX_PLAYERS, pairs, pairKey, emptyTest, buildTournament, randomResults, setsMismatch, encode, decode,
 } from "./testmode.js?v=46";
-import { recalcRatings } from "./rating.js?v=47";
+import { recalcRatings, endOf } from "./rating.js?v=48";
 import { PAY, payroll, playerName, periodFor, lastPayoutPeriod, daysBetween, addDays, lastPayout } from "./pay.js?v=46";
 
 const app = document.getElementById("app");
@@ -313,7 +313,7 @@ async function renderTournament(s, token) {
   const show = (t, setkaState = null) => {
     app.innerHTML = t ? tournamentView(t, s.date, setkaState) : home(s, { message: "Такого турнира в этот день нет." });
     document.title = t ? `${tournamentTitle(t)} — Турнир` : "Турнир — места Setka Cup";
-    if (t && !t.isTest) rateTournaments([t]);
+    if (t && !t.isTest) rateTable(t);
   };
   const known = loadedTournament(s.date, s.id);
   if (known) return show(known);
@@ -756,7 +756,7 @@ function helpView() {
         <li>Выберите день — турниры этого дня сгруппированы по залам, внутри зала — по времени: утро, день, вечер, ночь.</li>
         <li>Сеул и Токио всегда сверху. За ними — залы, где турнир идёт прямо сейчас, потом остальные по алфавиту.</li>
         <li>Метки: «скоро» — турнир ещё не начался, «идёт · 8/15» — идёт, сыграно 8 матчей из 15. Без метки — турнир закрыт.</li>
-        <li>«Рейтинг» — средний рейтинг Setka игроков турнира (сегодняшний, а не на день турнира); в таблице турнира рейтинг стоит у каждого игрока. Setka с 12.11.2026 рейтинг не обновляет — пока так, сайт пересчитывает его сам по её формуле (выведена по прошлым турнирам, совпадает с Setka до десятой в 85% случаев): такой рейтинг помечен «≈». Технические результаты в рейтинг не идут. Когда Setka снова начнёт считать, сайт вернётся к её рейтингу сам.</li>
+        <li>«Рейтинг» — средний рейтинг Setka игроков турнира (сегодняшний, а не на день турнира); в таблице турнира у каждого игрока — рейтинг до турнира → после (у турниров до остановки Setka — её рейтинг накануне дня турнира и в конце этого дня; если в тот день у игрока было два турнира, изменение за оба; загружается до 20 секунд). Setka с 12.11.2026 рейтинг не обновляет — пока так, сайт пересчитывает его сам по её формуле (выведена по прошлым турнирам, совпадает с Setka до десятой в 85% случаев): такой рейтинг помечен «≈». Технические результаты в рейтинг не идут. Когда Setka снова начнёт считать, сайт вернётся к её рейтингу сам.</li>
       </ul>
       <h3>Кнопки сверху</h3>
       <p>📊 — статистика нестандартных случаев, 🧪 Тест — тестовый раздел, ? — эта справка.</p>`)}
@@ -1044,7 +1044,7 @@ function loadRatings(ids) {
 
 /** Пересчёт: base — rating-base.json, map — id → рейтинг сейчас (null — не загрузился: тогда рейтинг Setka);
  *  done — первая загрузка закончилась (до неё рейтинг не показывается, чтобы не мелькал застывший рейтинг Setka) */
-const recalc = { request: null, at: 0, base: null, map: null, done: false };
+const recalc = { request: null, at: 0, base: null, map: null, byTournament: null, done: false };
 /** Как долго пересчёт свежий: идущие турниры добавляют матчи */
 const RECALC_FRESH = 5 * 60000;
 
@@ -1052,7 +1052,7 @@ function loadRecalc() {
   if (recalc.request && Date.now() - recalc.at < RECALC_FRESH) return recalc.request;
   recalc.at = Date.now();
   const request = (async () => {
-    const response = await fetch("rating-base.json?v=47");
+    const response = await fetch("rating-base.json?v=48");
     if (!response.ok) throw new Error("нет rating-base.json");
     const base = await response.json();
     // Дни Setka — по UTC-дате первого матча: до сегодняшнего по часам телефона и по UTC (что позже)
@@ -1064,13 +1064,15 @@ function loadRecalc() {
     const lists = await Promise.all(days.flatMap((date) => (periods
       ? periods.map((period) => loadPart(date, period, { more: true }))
       : [loadList(`${date}|*`, { date, more: 1 })])));
-    return { base, map: recalcRatings(base, lists.flat()) };
+    const { current, byTournament } = recalcRatings(base, lists.flat());
+    return { base, map: current, byTournament };
   })();
   recalc.request = request;
-  request.then(({ base, map }) => {
+  request.then(({ base, map, byTournament }) => {
     if (recalc.request !== request) return;
     recalc.base = base;
     recalc.map = map;
+    recalc.byTournament = byTournament;
     recalc.done = true;
   }, () => {
     recalc.done = true;
@@ -1111,13 +1113,7 @@ function ratingText(ids) {
   return ` · рейтинг ${values.some((v) => v.approx) ? "≈" : ""}${oneDecimal(average)}`;
 }
 
-/** « · 35,5» у игрока в таблице турнира */
-function playerRatingText(id) {
-  const r = shownRating(id);
-  return r ? ` · ${r.approx ? "≈" : ""}${oneDecimal(r.value)}` : "";
-}
-
-/** Дописать рейтинги на странице: средний у строк турниров, у игроков в таблице. Сначала ждём и Setka, и пересчёт */
+/** Дописать средний рейтинг у строк турниров. Сначала ждём и Setka, и пересчёт */
 function rateTournaments(tournaments) {
   if (!tournaments?.length) return;
   Promise.all([loadRatings(tournaments.flatMap(playerIds)), loadRecalc()]).then(() => {
@@ -1125,11 +1121,64 @@ function rateTournaments(tournaments) {
       el.textContent = ratingText(el.dataset.players.split(",").map(Number));
       if (el.textContent.includes("≈")) el.title = recalcHint(); else el.removeAttribute("title");
     }
-    for (const el of app.querySelectorAll(".prating[data-player]")) {
-      el.textContent = playerRatingText(Number(el.dataset.player));
-      if (el.textContent.includes("≈")) el.title = recalcHint(); else el.removeAttribute("title");
-    }
   });
+}
+
+// --- Рейтинг игрока в таблице турнира: до турнира → после ---
+// Турниры после остановки Setka — из нашего пересчёта (≈); раньше — рейтинг Setka накануне дня турнира и в этот день
+// (посредник ?history=, Setka отвечает 10–20 с, прошлые дни посредник помнит месяц)
+
+/** «день|id,id…» → обещание { id: { before, after } } рейтинга Setka */
+const historyRequests = new Map();
+
+function loadHistory(ids, day) {
+  const key = `${day}|${[...ids].sort((a, b) => a - b).join(",")}`;
+  if (!historyRequests.has(key)) {
+    const request = fetchJson({ history: [...ids].join(","), date: day }).catch(() => {
+      historyRequests.delete(key);
+      return null;
+    });
+    historyRequests.set(key, request);
+  }
+  return historyRequests.get(key);
+}
+
+/** « · 39,3 → 38,3 (−1,0)»; без изменения — « · 39,3» */
+function changeText(r, approx) {
+  if (!r || r.before == null) return "";
+  const mark = approx ? "≈" : "";
+  if (r.after == null || Math.abs(r.after - r.before) < 0.05) return ` · ${mark}${oneDecimal(r.before)}`;
+  const diff = r.after - r.before;
+  return ` · ${mark}${oneDecimal(r.before)} → ${oneDecimal(r.after)} (${diff > 0 ? "+" : "−"}${oneDecimal(Math.abs(diff))})`;
+}
+
+function paintPlayer(id, text, approx) {
+  for (const el of app.querySelectorAll(`.prating[data-player="${id}"]`)) {
+    el.textContent = text;
+    if (approx && text) el.title = recalcHint(); else el.removeAttribute("title");
+  }
+}
+
+async function rateTable(t) {
+  const token = renderToken;
+  const players = new Map(t.matches.flatMap((m) => [m.player1, m.player2]).filter(Boolean).map((p) => [p.id, p]));
+  for (const id of players.keys()) paintPlayer(id, " · …", false);
+  await Promise.all([loadRatings([...players.keys()]), loadRecalc()]);
+  if (token !== renderToken) return;
+  const moved = setkaMoved();
+  const own = !moved ? recalc.byTournament?.get(t.id) : null;
+  const end = endOf(t)?.slice(0, 10);
+  const rest = [];
+  for (const id of players.keys()) {
+    if (own?.has(id)) paintPlayer(id, changeText(own.get(id), true), true);
+    else rest.push(id);
+  }
+  if (!rest.length || !end) return rest.forEach((id) => paintPlayer(id, "", false));
+  // Рейтинг Setka накануне дня окончания турнира и в этот день; турнир ещё не закончился — на сегодня (дни Setka — по UTC)
+  const utc = new Date().toISOString().slice(0, 10);
+  const json = await loadHistory(rest, end < utc ? end : utc);
+  if (token !== renderToken) return;
+  for (const id of rest) paintPlayer(id, changeText(json?.[id], false), false);
 }
 
 // --- «Идут сейчас»: текущий матч каждого играющего зала — приходит раньше списка дня ---
@@ -1744,7 +1793,7 @@ function table(s) {
         ${rows.map((r) => `
           <tr class="pickable${cls(r.player.id)}" data-action="pick-player" data-player="${r.player.id}" data-players="${r.player.id}">
             <td>${place(r.groupPlace)}</td>
-            <td class="player"><div class="last">${esc(r.player.lastName)}</div><div class="first">${esc(r.player.firstName)}${r.byLot ? " · жребий" : ""}<span class="prating" data-player="${r.player.id}">${playerRatingText(r.player.id)}</span></div></td>
+            <td class="player"><div class="last">${esc(r.player.lastName)}</div><div class="first">${esc(r.player.firstName)}${r.byLot ? " · жребий" : ""}<span class="prating" data-player="${r.player.id}"></span></div></td>
             <td>${r.record.wins}–${r.record.losses}</td>
             <td>${r.record.setsWon}:${r.record.setsLost}${ratio(r.record.setsWon, r.record.setsLost)}${inCircle(r.player.id, "sets")}</td>
             <td class="balls">${r.record.ballsWon}:${r.record.ballsLost}${ratio(r.record.ballsWon, r.record.ballsLost)}${inCircle(r.player.id, "balls")}</td>
