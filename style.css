@@ -432,3 +432,4 @@ details.precedents[open] summary { margin-bottom: 8px; }
 .after-matches { display: grid; gap: 12px; margin-top: 12px; }
 .after-matches:empty { display: none; }
 .after-matches > .card { margin-top: 0 !important; }
+.prating { font-variant-numeric: tabular-nums; }
